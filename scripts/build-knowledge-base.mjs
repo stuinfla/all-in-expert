@@ -298,10 +298,41 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
     useRvf = false;
   }
 
-  // Always save JSON backup for portability
-  console.log('Saving JSON knowledge base...');
+  // Build content index: compact JSON mapping entry IDs to content + metadata
+  // This ships alongside the RVF file for Vercel deployment
+  console.log('Building content index...');
 
-  // Save entries in batches to avoid huge files
+  const contentIndex = {};
+  for (const entry of entries) {
+    contentIndex[entry.id] = {
+      c: entry.content,                          // text content
+      v: entry.metadata.videoId,                  // video ID
+      t: entry.metadata.startTime || '00:00:00',  // timestamp
+      s: entry.metadata.startMs || 0,             // start ms
+      p: entry.metadata.topics || [],             // topics
+      m: entry.metadata.speakersMentioned || [],   // speakers mentioned
+      u: entry.metadata.youtubeUrl || ''           // youtube URL
+    };
+  }
+
+  // Save content index to both KB dir and web/public/data for deployment
+  const WEB_DATA_DIR = join(ROOT, 'web', 'public', 'data');
+  mkdirSync(WEB_DATA_DIR, { recursive: true });
+
+  writeFileSync(join(KB_DIR, 'content-index.json'), JSON.stringify(contentIndex));
+  writeFileSync(join(WEB_DATA_DIR, 'content-index.json'), JSON.stringify(contentIndex));
+  console.log(`Content index: ${Object.keys(contentIndex).length} entries (${(JSON.stringify(contentIndex).length / 1024 / 1024).toFixed(1)}MB)`);
+
+  // Copy RVF to web/public/data if it was built
+  if (useRvf) {
+    const rvfSrc = join(KB_DIR, 'all-in-expert.rvf');
+    const rvfDst = join(WEB_DATA_DIR, 'all-in-expert.rvf');
+    const { copyFileSync } = await import('fs');
+    copyFileSync(rvfSrc, rvfDst);
+    console.log(`RVF copied to ${rvfDst}`);
+  }
+
+  // Also save legacy batch entries for CLI compatibility
   const BATCH_SIZE = 500;
   for (let i = 0; i < entries.length; i += BATCH_SIZE) {
     const batch = entries.slice(i, i + BATCH_SIZE);
@@ -319,6 +350,9 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
       JSON.stringify(profile, null, 2)
     );
   }
+
+  // Copy speaker profiles to web/public/data
+  writeFileSync(join(WEB_DATA_DIR, 'speaker-profiles.json'), JSON.stringify(speakerProfiles));
 
   // Save KB manifest
   const manifest = {

@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { readFileSync, readdirSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-const ROOT = join(process.cwd(), '..');
-const KB_DIR = join(ROOT, 'data', 'kb');
-const PROFILES_DIR = join(ROOT, 'data', 'profiles');
+// Content index is bundled in public/data/ — ships with Vercel deployment
+const DATA_DIR = join(process.cwd(), 'public', 'data');
+
+// Lazy-loaded content index (cached in memory after first request)
+let contentIndex: Record<string, ContentEntry> | null = null;
+
+interface ContentEntry {
+  c: string;   // text content
+  v: string;   // video ID
+  t: string;   // timestamp
+  s: number;   // start ms
+  p: string[]; // topics
+  m: string[]; // speakers mentioned
+  u: string;   // youtube URL
+}
 
 const SPEAKER_CONTEXT: Record<string, { name: string; short: string; lens: string; style: string }> = {
   chamath: {
@@ -34,53 +46,43 @@ const SPEAKER_CONTEXT: Record<string, { name: string; short: string; lens: strin
   }
 };
 
-function loadEntries() {
-  if (!existsSync(KB_DIR)) return [];
-  const files = readdirSync(KB_DIR)
-    .filter((f: string) => f.startsWith('entries_') && f.endsWith('.json'))
-    .sort();
-  let entries: any[] = [];
-  for (const file of files) {
-    entries = entries.concat(JSON.parse(readFileSync(join(KB_DIR, file), 'utf8')));
+function loadContentIndex(): Record<string, ContentEntry> {
+  if (contentIndex) return contentIndex;
+
+  const indexPath = join(DATA_DIR, 'content-index.json');
+  if (!existsSync(indexPath)) {
+    throw new Error('Content index not found. Run: bash scripts/refresh-kb.sh');
   }
-  return entries;
+
+  contentIndex = JSON.parse(readFileSync(indexPath, 'utf8'));
+  return contentIndex!;
 }
 
-function hashProject(word: string, dimensions = 512) {
-  let hash = 0;
-  for (let i = 0; i < word.length; i++) {
-    hash = ((hash << 5) - hash + word.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % dimensions;
-}
-
-function textToVector(text: string, dimensions = 512) {
-  const vec = new Float32Array(dimensions);
-  const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
-  const wordCounts: Record<string, number> = {};
-  for (const word of words) wordCounts[word] = (wordCounts[word] || 0) + 1;
-  for (const [word, count] of Object.entries(wordCounts)) {
-    vec[hashProject(word, dimensions)] += count / words.length;
-  }
-  let norm = 0;
-  for (let i = 0; i < dimensions; i++) norm += vec[i] * vec[i];
-  norm = Math.sqrt(norm);
-  if (norm > 0) for (let i = 0; i < dimensions; i++) vec[i] /= norm;
-  return vec;
-}
-
-function keywordSearch(entries: any[], query: string, limit = 20) {
+function keywordSearch(index: Record<string, ContentEntry>, query: string, limit = 20) {
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  return entries
-    .map(e => {
-      const content = (e.content || '').toLowerCase();
-      const score = queryWords.filter(w => content.includes(w)).length;
-      return { ...e, score };
-    })
-    .filter(e => e.score > 0)
+  const stopWords = new Set(['what', 'would', 'will', 'about', 'think', 'they', 'this',
+    'that', 'from', 'have', 'been', 'should', 'could', 'does', 'with', 'going', 'their']);
+  const searchTerms = queryWords.filter(w => !stopWords.has(w));
+
+  const results: Array<{ id: string; entry: ContentEntry; score: number }> = [];
+
+  for (const [id, entry] of Object.entries(index)) {
+    const content = entry.c.toLowerCase();
+    let score = 0;
+    for (const term of searchTerms) {
+      const regex = new RegExp(`\\b${term}`, 'g');
+      const matches = content.match(regex);
+      if (matches) score += matches.length;
+    }
+    if (score > 0) results.push({ id, entry, score });
+  }
+
+  return results
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
+
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -95,20 +97,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
 
-    const entries = loadEntries();
-    if (entries.length === 0) {
+    const index = loadContentIndex();
+    const totalEntries = Object.keys(index).length;
+
+    if (totalEntries === 0) {
       return NextResponse.json({ error: 'Knowledge base is empty' }, { status: 500 });
     }
 
-    // Search for relevant segments
-    const segments = keywordSearch(entries, query, 30);
+    const segments = keywordSearch(index, query, 30);
 
     const segmentText = segments
       .slice(0, 15)
-      .map((s: any, i: number) => {
-        const url = s.metadata?.youtubeUrl || '';
-        const topics = (s.metadata?.topics || []).join(', ');
-        return `--- Segment ${i + 1} [${s.metadata?.startTime || '??'}] (Topics: ${topics}) ---\n${s.content.slice(0, 600)}\n${url}`;
+      .map((s, i) => {
+        const topics = s.entry.p.join(', ');
+        return `--- Segment ${i + 1} [${s.entry.t}] (Topics: ${topics}) ---\n${s.entry.c.slice(0, 600)}\n${s.entry.u}`;
       })
       .join('\n\n');
 
@@ -194,13 +196,11 @@ Provide a BESTIE INTELLIGENCE REPORT:
     return NextResponse.json({
       report: text,
       segmentsFound: segments.length,
-      totalEntries: entries.length
+      totalEntries
     });
-  } catch (err: any) {
-    console.error('API error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Internal server error' },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    console.error('API error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
