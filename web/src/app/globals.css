@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --card-bg: #151515;
+  --card-border: #2a2a2a;
+  --muted: #888888;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Markdown rendering */
+.report-content h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 0.75rem; }
+.report-content h2 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #60a5fa; }
+.report-content h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.report-content p { margin: 0.5rem 0; line-height: 1.7; }
+.report-content ul { margin: 0.5rem 0; padding-left: 1.5rem; }
+.report-content li { margin: 0.25rem 0; line-height: 1.6; }
+.report-content strong { color: #f0f0f0; }
+.report-content a { color: #60a5fa; text-decoration: underline; }
+.report-content hr { border-color: #2a2a2a; margin: 1.5rem 0; }
+.report-content code { background: #1e1e1e; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+
+/* Speaker colors */
+.speaker-chamath { border-left-color: #f59e0b; }
+.speaker-sacks { border-left-color: #3b82f6; }
+.speaker-friedberg { border-left-color: #10b981; }
+.speaker-calacanis { border-left-color: #ef4444; }

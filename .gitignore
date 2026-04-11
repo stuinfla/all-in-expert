@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Environment (keep .env.example)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# RuVector upstream submodule (tracked via .gitmodules, ignored from working tree)
+ruvector/
+
+# Ruflo runtime data
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Ruflo scaffolding (regenerated via ruflo init)
+.claude/
+.claude-flow/
+.mcp.json
+CLAUDE.md
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+.next/
+
+# Data (too large for git — regenerated via pipeline)
+data/captions/
+data/transcripts/
+data/kb/
+data/profiles/

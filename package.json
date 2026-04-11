@@ -1,0 +1,21 @@
+{
+  "name": "all-in-expert",
+  "version": "0.1.0",
+  "description": "All-In Podcast intelligence system - bestie expertise profiles and market forecasting",
+  "type": "module",
+  "scripts": {
+    "download:captions": "node scripts/download-captions.mjs",
+    "process:captions": "node scripts/process-captions.mjs",
+    "build:kb": "node scripts/build-knowledge-base.mjs",
+    "query": "node src/query.mjs",
+    "ask": "node src/synthesize.mjs",
+    "forecast": "node src/synthesize.mjs --forecast",
+    "ingest": "npm run download:captions && npm run process:captions && npm run build:kb"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@ruvector/rvf": "latest",
+    "dotenv": "^17.4.1",
+    "ruvector": "latest"
+  }
+}
