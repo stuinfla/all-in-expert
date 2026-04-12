@@ -441,29 +441,31 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── Speculative parallel: pi-brain lookup || retrieval ────────
-    // Kick off pi-brain lookup and retrieval concurrently. If pi-brain
-    // returns a hit before retrieval completes, we short-circuit and use it.
-    // If it misses or times out, we fall through to the synthesis step with
-    // no added latency (retrieval was running the whole time).
+    // Run both concurrently. Pi-brain hit wins if it completes before
+    // retrieval; otherwise we stick with retrieval and proceed to synthesis.
     const piBrainPromise = cacheLookupPiBrain(cacheKey).catch(() => null);
     const retrievalPromise = semanticSearch(query, 30, speaker || null);
 
-    // Race them with a small window — if pi-brain hits within retrieval's
-    // latency budget, use it. Otherwise continue with retrieval.
-    const piHit = await Promise.race([
-      piBrainPromise,
-      retrievalPromise.then(() => null), // retrieval finishing means "no cache, proceed"
+    // Wait for either pi-brain to resolve (hit or miss) OR retrieval to finish.
+    // Whichever completes first wins. On pi-brain miss (null resolve), we still
+    // wait for retrieval. On retrieval finish before pi-brain, we discard
+    // pi-brain and proceed.
+    const raceResult = await Promise.race([
+      piBrainPromise.then((v) => ({ kind: 'pi', value: v })),
+      retrievalPromise.then((v) => ({ kind: 'retrieval', value: v })),
     ]);
-    if (piHit) {
+
+    if (raceResult.kind === 'pi' && raceResult.value) {
       return NextResponse.json({
-        ...piHit,
+        ...raceResult.value,
         cacheHit: true,
         cacheSource: 'pi-brain',
         latencyMs: Date.now() - reqStart,
       });
     }
 
-    // Retrieval already completed (it won the race). Grab its result.
+    // Either retrieval won the race, or pi-brain returned null. Ensure
+    // retrieval's result is awaited (it may or may not be done yet).
     const { results, mode: searchMode } = await retrievalPromise;
 
     if (results.length === 0) {
