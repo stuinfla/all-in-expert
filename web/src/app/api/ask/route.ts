@@ -104,14 +104,23 @@ function recencyWeight(videoId: string): number {
 
 async function getEmbedder() {
   if (embedderCache) return embedderCache;
-  const { pipeline, env } = await import('@xenova/transformers');
-  // Allow local-only model loading from node_modules
-  (env as any).allowRemoteModels = true;
-  (env as any).allowLocalModels = true;
-  embedderCache = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-    quantized: true,
-  });
-  return embedderCache;
+  try {
+    console.log('[getEmbedder] loading @xenova/transformers...');
+    const { pipeline, env } = await import('@xenova/transformers');
+    (env as any).allowRemoteModels = true;
+    (env as any).allowLocalModels = true;
+    // Use /tmp for model cache on Vercel (only writable path)
+    (env as any).cacheDir = '/tmp/xenova-cache';
+    console.log('[getEmbedder] calling pipeline()...');
+    embedderCache = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      quantized: true,
+    });
+    console.log('[getEmbedder] pipeline ready');
+    return embedderCache;
+  } catch (err) {
+    console.error('[getEmbedder] failed to load:', err);
+    throw err;
+  }
 }
 
 async function getRvf() {
@@ -128,9 +137,43 @@ async function getRvf() {
 }
 
 async function embedQuery(query: string): Promise<Float32Array> {
-  const embedder = await getEmbedder();
-  const output = await embedder(query, { pooling: 'mean', normalize: true });
-  return new Float32Array(output.data);
+  // Try xenova (local, free) first; fall back to OpenAI if it fails or is slow
+  try {
+    const embedder = await getEmbedder();
+    const output = await embedder(query, { pooling: 'mean', normalize: true });
+    return new Float32Array(output.data);
+  } catch (err) {
+    console.error('[embedQuery] xenova failed, trying OpenAI fallback:', err);
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      throw new Error('xenova failed and OPENAI_API_KEY not set');
+    }
+    // OpenAI text-embedding-3-small supports dimension reduction to match our 384-dim vectors
+    const res = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: query,
+        dimensions: 384,
+        encoding_format: 'float',
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`OpenAI embeddings API error: ${res.status}`);
+    }
+    const data = await res.json();
+    const vec = new Float32Array(data.data[0].embedding);
+    // Normalize (OpenAI vectors are already normalized when using reduced dims, but be safe)
+    let norm = 0;
+    for (let i = 0; i < vec.length; i++) norm += vec[i] * vec[i];
+    norm = Math.sqrt(norm);
+    if (norm > 0) for (let i = 0; i < vec.length; i++) vec[i] /= norm;
+    return vec;
+  }
 }
 
 // Load bestie facts once per cold start — these are ground-truth overrides
@@ -155,13 +198,18 @@ function getBestieFacts(): Record<string, any> {
 async function semanticSearchBin(query: string, limit: number, speakerFilter?: string | null) {
   const index = await getContentIndex();
   const embeddings = getEmbeddingsBin();
-  if (!embeddings) return null;
+  if (!embeddings) {
+    console.log('[semanticSearchBin] embeddings binary not available');
+    return null;
+  }
+  console.log(`[semanticSearchBin] loaded ${embeddings.order.length} vectors, embedding query...`);
 
   let queryVec: Float32Array;
   try {
     queryVec = await embedQuery(query);
+    console.log(`[semanticSearchBin] query embedded, dims=${queryVec.length}`);
   } catch (err) {
-    console.error('Query embedding failed:', err);
+    console.error('[semanticSearchBin] Query embedding failed:', err);
     return null;
   }
 
