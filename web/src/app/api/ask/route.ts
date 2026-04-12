@@ -136,44 +136,40 @@ async function getRvf() {
   }
 }
 
+/**
+ * Embed the query using OpenAI text-embedding-3-small @ 384 dims.
+ * This matches the embedding space of the precomputed doc vectors in embeddings.bin.
+ * Cost per query: ~$0.00002. Latency: ~50-100ms.
+ */
 async function embedQuery(query: string): Promise<Float32Array> {
-  // Try xenova (local, free) first; fall back to OpenAI if it fails or is slow
-  try {
-    const embedder = await getEmbedder();
-    const output = await embedder(query, { pooling: 'mean', normalize: true });
-    return new Float32Array(output.data);
-  } catch (err) {
-    console.error('[embedQuery] xenova failed, trying OpenAI fallback:', err);
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) {
-      throw new Error('xenova failed and OPENAI_API_KEY not set');
-    }
-    // OpenAI text-embedding-3-small supports dimension reduction to match our 384-dim vectors
-    const res = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: query,
-        dimensions: 384,
-        encoding_format: 'float',
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`OpenAI embeddings API error: ${res.status}`);
-    }
-    const data = await res.json();
-    const vec = new Float32Array(data.data[0].embedding);
-    // Normalize (OpenAI vectors are already normalized when using reduced dims, but be safe)
-    let norm = 0;
-    for (let i = 0; i < vec.length; i++) norm += vec[i] * vec[i];
-    norm = Math.sqrt(norm);
-    if (norm > 0) for (let i = 0; i < vec.length; i++) vec[i] /= norm;
-    return vec;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!openaiKey) {
+    throw new Error('OPENAI_API_KEY not configured — required for semantic search');
   }
+  const res = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${openaiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'text-embedding-3-small',
+      input: query,
+      dimensions: 384,
+      encoding_format: 'float',
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`OpenAI embeddings API error: ${res.status} ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const vec = new Float32Array(data.data[0].embedding);
+  let norm = 0;
+  for (let i = 0; i < vec.length; i++) norm += vec[i] * vec[i];
+  norm = Math.sqrt(norm);
+  if (norm > 0) for (let i = 0; i < vec.length; i++) vec[i] /= norm;
+  return vec;
 }
 
 // Load bestie facts once per cold start — these are ground-truth overrides
