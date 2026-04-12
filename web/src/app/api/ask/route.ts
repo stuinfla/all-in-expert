@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -665,9 +666,9 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
       searchMode,
     };
 
-    // Write-through to pi-brain for future cache hits. Failures are silent
-    // (the cacheStore helper swallows its own network errors).
-    await cacheStore(cacheKey, payload);
+    // Write-through to pi-brain for future cache hits. Runs AFTER the response
+    // is sent so the user doesn't pay for network round-trip on a miss.
+    after(() => cacheStore(cacheKey, payload));
 
     return NextResponse.json({
       ...payload,
