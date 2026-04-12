@@ -3,7 +3,7 @@ import { after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { cacheLookup, cacheStore, CachedResponse } from '@/lib/pi-brain';
+import { cacheLookupMem, cacheLookupPiBrain, cacheStore, CachedResponse } from '@/lib/pi-brain';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -428,24 +428,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
 
-    // ─── Pi-Brain cache lookup (near-instant for repeat queries) ───
+    // ─── Tier 1: in-memory cache (sync, ~1ms) ──────────────────────
     const cacheKey = { query, speaker: speaker || null, mode: mode || null };
-    const cached = await cacheLookup(cacheKey);
-    if (cached) {
+    const memHit = cacheLookupMem(cacheKey);
+    if (memHit) {
       return NextResponse.json({
-        ...cached.value,
+        ...memHit,
         cacheHit: true,
-        cacheSource: cached.source,
+        cacheSource: 'mem',
         latencyMs: Date.now() - reqStart,
       });
     }
 
-    // Semantic search with optional speaker filter
-    const { results, mode: searchMode } = await semanticSearch(
-      query,
-      30,
-      speaker || null
-    );
+    // ─── Speculative parallel: pi-brain lookup || retrieval ────────
+    // Kick off pi-brain lookup and retrieval concurrently. If pi-brain
+    // returns a hit before retrieval completes, we short-circuit and use it.
+    // If it misses or times out, we fall through to the synthesis step with
+    // no added latency (retrieval was running the whole time).
+    const piBrainPromise = cacheLookupPiBrain(cacheKey).catch(() => null);
+    const retrievalPromise = semanticSearch(query, 30, speaker || null);
+
+    // Race them with a small window — if pi-brain hits within retrieval's
+    // latency budget, use it. Otherwise continue with retrieval.
+    const piHit = await Promise.race([
+      piBrainPromise,
+      retrievalPromise.then(() => null), // retrieval finishing means "no cache, proceed"
+    ]);
+    if (piHit) {
+      return NextResponse.json({
+        ...piHit,
+        cacheHit: true,
+        cacheSource: 'pi-brain',
+        latencyMs: Date.now() - reqStart,
+      });
+    }
+
+    // Retrieval already completed (it won the race). Grab its result.
+    const { results, mode: searchMode } = await retrievalPromise;
 
     if (results.length === 0) {
       return NextResponse.json({

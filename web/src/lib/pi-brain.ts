@@ -19,11 +19,13 @@ const PI_BRAIN_KEY = process.env.PI_BRAIN_API_KEY || 'brain-ui';
 const CACHE_TAG = 'all-in-expert';
 const CACHE_VERSION = 'aie-v1';
 const CACHE_TTL_MS = 72 * 60 * 60 * 1000; // 72h
-// Pi.ruv.io cold connect from Vercel fn can take ~1-1.5s, plus actual query.
-// We accept up to 3s on lookup because a hit saves us 10+ seconds; a miss
-// still means we only spent 3s of extra latency before falling through.
-const LOOKUP_TIMEOUT_MS = 3000;
-const STORE_TIMEOUT_MS = 4000;
+// Pi.ruv.io is inconsistent — search can take 1.3s or time out at 3s+. Since
+// the API route now does the pi-brain lookup IN PARALLEL with retrieval
+// (speculative execution), a high timeout is fine: the retrieval pipeline
+// doesn't wait for pi-brain. If pi-brain returns a hit before retrieval
+// finishes, we use it. If not, retrieval+synthesis proceeds normally.
+const LOOKUP_TIMEOUT_MS = 8000;
+const STORE_TIMEOUT_MS = 6000;
 
 export interface CachedResponse {
   report: string;
@@ -104,26 +106,30 @@ async function fetchWithTimeout(
 }
 
 /**
- * Look up a cached answer.
- *
- * Pi-Brain's /v1/memories/search is semantic; we filter results to EXACT title
- * matches against our deterministic title hash. That prevents false-positive
- * cache hits on genuinely different questions that happen to share vocabulary.
+ * Tier 1: in-memory LRU lookup. Synchronous (~1ms).
+ * Returns a value if the warm-cache has this exact key.
  */
-export async function cacheLookup(
-  key: CacheKey
-): Promise<{ value: CachedResponse; source: 'mem' | 'pi-brain' } | null> {
+export function cacheLookupMem(key: CacheKey): CachedResponse | null {
   const title = cacheTitle(key);
-  const titleHash = title.slice(0, 26); // "AIE-CACHE [<16hex>]"
+  const titleHash = title.slice(0, 26);
+  return memGet(titleHash);
+}
 
-  // Tier 1: in-memory
-  const memHit = memGet(titleHash);
-  if (memHit) return { value: memHit, source: 'mem' };
+/**
+ * Tier 2: pi-brain lookup via REST. Network-bound, 1-3s typical.
+ * Use in parallel with retrieval/synthesis — whichever returns first wins.
+ *
+ * Pi-Brain search is semantic on title+content. We search by the user's
+ * actual query text (semantically meaningful) then filter to the result
+ * whose title has our exact deterministic hash prefix. This gives us
+ * cache-key exactness while using semantic retrieval as the index.
+ */
+export async function cacheLookupPiBrain(
+  key: CacheKey
+): Promise<CachedResponse | null> {
+  const title = cacheTitle(key);
+  const titleHash = title.slice(0, 26);
 
-  // Tier 2: pi-brain. Pi-brain search is SEMANTIC, so we search by the
-  // user's actual query (meaningful text) and then filter returned results
-  // to the one whose title has our exact deterministic hash prefix. This
-  // gives us cache-key exactness while using semantic retrieval as the index.
   const searchTerm = `AIE-CACHE ${normalizeQuery(key.query)}`;
   const q = encodeURIComponent(searchTerm);
   const res = await fetchWithTimeout(
@@ -165,12 +171,27 @@ export async function cacheLookup(
       const parsed = JSON.parse(h.content) as CachedResponse;
       if (parsed && typeof parsed.report === 'string') {
         memSet(titleHash, parsed);
-        return { value: parsed, source: 'pi-brain' };
+        return parsed;
       }
     } catch {
       // malformed cache entry → skip
     }
   }
+  return null;
+}
+
+/**
+ * Convenience: old combined lookup kept for callers that want sequential
+ * behavior. New code should use cacheLookupMem + cacheLookupPiBrain for
+ * speculative parallel execution.
+ */
+export async function cacheLookup(
+  key: CacheKey
+): Promise<{ value: CachedResponse; source: 'mem' | 'pi-brain' } | null> {
+  const mem = cacheLookupMem(key);
+  if (mem) return { value: mem, source: 'mem' };
+  const pi = await cacheLookupPiBrain(key);
+  if (pi) return { value: pi, source: 'pi-brain' };
   return null;
 }
 
