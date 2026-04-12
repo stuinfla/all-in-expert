@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { cacheLookup, cacheStore, CachedResponse } from '@/lib/pi-brain';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -413,6 +414,7 @@ function sec(ms: number) {
 }
 
 export async function POST(req: NextRequest) {
+  const reqStart = Date.now();
   try {
     const { query, speaker, mode } = await req.json();
 
@@ -423,6 +425,18 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
+    }
+
+    // ─── Pi-Brain cache lookup (near-instant for repeat queries) ───
+    const cacheKey = { query, speaker: speaker || null, mode: mode || null };
+    const cached = await cacheLookup(cacheKey);
+    if (cached) {
+      return NextResponse.json({
+        ...cached.value,
+        cacheHit: true,
+        cacheSource: cached.source,
+        latencyMs: Date.now() - reqStart,
+      });
     }
 
     // Semantic search with optional speaker filter
@@ -643,12 +657,22 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
 
-    return NextResponse.json({
+    const payload: CachedResponse = {
       report: text,
       citations,
       segmentsFound: results.length,
       totalEntries: Object.keys(await getContentIndex()).length,
       searchMode,
+    };
+
+    // Write-through to pi-brain for future cache hits. Failures are silent
+    // (the cacheStore helper swallows its own network errors).
+    await cacheStore(cacheKey, payload);
+
+    return NextResponse.json({
+      ...payload,
+      cacheHit: false,
+      latencyMs: Date.now() - reqStart,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
