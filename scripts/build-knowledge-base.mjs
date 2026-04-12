@@ -343,6 +343,22 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
 
   console.log(`All ${vectors.length} embeddings generated in ${((Date.now() - start) / 1000).toFixed(1)}s`);
 
+  // Write precomputed embeddings as a flat Float32 binary file for
+  // serverless-friendly cosine similarity (bypasses @ruvector/rvf native module)
+  const WEB_DATA_EARLY = join(ROOT, 'web', 'public', 'data');
+  mkdirSync(WEB_DATA_EARLY, { recursive: true });
+  const embeddingsBin = new Float32Array(entries.length * DIMENSIONS);
+  const idOrder = [];
+  for (let i = 0; i < entries.length; i++) {
+    embeddingsBin.set(vectors[i], i * DIMENSIONS);
+    idOrder.push(entries[i].id);
+  }
+  writeFileSync(join(KB_DIR, 'embeddings.bin'), Buffer.from(embeddingsBin.buffer));
+  writeFileSync(join(WEB_DATA_EARLY, 'embeddings.bin'), Buffer.from(embeddingsBin.buffer));
+  writeFileSync(join(KB_DIR, 'embeddings-order.json'), JSON.stringify(idOrder));
+  writeFileSync(join(WEB_DATA_EARLY, 'embeddings-order.json'), JSON.stringify(idOrder));
+  console.log(`Embeddings binary: ${entries.length} × ${DIMENSIONS} Float32 = ${(embeddingsBin.byteLength / 1024 / 1024).toFixed(1)}MB`);
+
   try {
     const { RvfDatabase } = await import('@ruvector/rvf');
     useRvf = true;

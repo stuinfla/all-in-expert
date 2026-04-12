@@ -24,6 +24,32 @@ let contentIndexCache: Record<string, ContentEntry> | null = null;
 let embedderCache: any = null;
 let rvfCache: any = null;
 let episodeDatesCache: Record<string, string> | null = null;
+let embeddingsBinCache: Float32Array | null = null;
+let embeddingsOrderCache: string[] | null = null;
+const EMBEDDING_DIMS = 384;
+
+function getEmbeddingsBin(): { bin: Float32Array; order: string[] } | null {
+  if (embeddingsBinCache && embeddingsOrderCache) {
+    return { bin: embeddingsBinCache, order: embeddingsOrderCache };
+  }
+  try {
+    const binPath = join(DATA_DIR, 'embeddings.bin');
+    const orderPath = join(DATA_DIR, 'embeddings-order.json');
+    if (!existsSync(binPath) || !existsSync(orderPath)) return null;
+    const buf = readFileSync(binPath);
+    // View the buffer as Float32Array
+    embeddingsBinCache = new Float32Array(
+      buf.buffer,
+      buf.byteOffset,
+      buf.byteLength / 4
+    );
+    embeddingsOrderCache = JSON.parse(readFileSync(orderPath, 'utf8'));
+    return { bin: embeddingsBinCache, order: embeddingsOrderCache! };
+  } catch (err) {
+    console.error('Embeddings binary load failed:', err);
+    return null;
+  }
+}
 
 async function getContentIndex(): Promise<Record<string, ContentEntry>> {
   if (contentIndexCache) return contentIndexCache;
@@ -121,13 +147,63 @@ function getBestieFacts(): Record<string, any> {
 }
 
 /**
+ * Semantic search via precomputed embeddings binary + pure-JS cosine.
+ * This is the primary search path — RVF native module doesn't boot in
+ * Vercel serverless, so we ship vectors as Float32 blobs and do the
+ * similarity math in plain JS. ~30ms for 15k vectors.
+ */
+async function semanticSearchBin(query: string, limit: number, speakerFilter?: string | null) {
+  const index = await getContentIndex();
+  const embeddings = getEmbeddingsBin();
+  if (!embeddings) return null;
+
+  let queryVec: Float32Array;
+  try {
+    queryVec = await embedQuery(query);
+  } catch (err) {
+    console.error('Query embedding failed:', err);
+    return null;
+  }
+
+  const { bin, order } = embeddings;
+  const N = order.length;
+  // Vectors from the build script are already L2-normalized, so cosine == dot product
+  const results: Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }> = [];
+
+  for (let i = 0; i < N; i++) {
+    const offset = i * EMBEDDING_DIMS;
+    let dot = 0;
+    for (let j = 0; j < EMBEDDING_DIMS; j++) {
+      dot += queryVec[j] * bin[offset + j];
+    }
+    const id = order[i];
+    const entry = index[id];
+    if (!entry) continue;
+    if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
+    // Convert similarity (higher = better) to distance (lower = better), apply recency
+    const rawDistance = 1 - dot;
+    const rec = recencyWeight(entry.v);
+    results.push({ id, entry, rawDistance, distance: rawDistance / rec });
+  }
+
+  results.sort((a, b) => a.distance - b.distance);
+  return results.slice(0, limit);
+}
+
+/**
  * Semantic search: embed query, search RVF (HNSW), then hydrate with content.
  * Falls back to keyword search if RVF unavailable.
  */
 async function semanticSearch(query: string, limit = 30, speakerFilter?: string | null) {
   const index = await getContentIndex();
-  const db = await getRvf();
 
+  // Try the binary-based semantic search first (works in Vercel serverless)
+  const binResults = await semanticSearchBin(query, limit, speakerFilter);
+  if (binResults && binResults.length > 0) {
+    return { results: binResults, mode: 'semantic' as const };
+  }
+
+  const db = await getRvf();
   if (db) {
     try {
       const queryVec = await embedQuery(query);
