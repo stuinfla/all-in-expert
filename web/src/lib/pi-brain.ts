@@ -111,10 +111,14 @@ export async function cacheLookup(
   const memHit = memGet(titleHash);
   if (memHit) return { value: memHit, source: 'mem' };
 
-  // Tier 2: pi-brain
-  const q = encodeURIComponent(titleHash);
+  // Tier 2: pi-brain. Pi-brain search is SEMANTIC, so we search by the
+  // user's actual query (meaningful text) and then filter returned results
+  // to the one whose title has our exact deterministic hash prefix. This
+  // gives us cache-key exactness while using semantic retrieval as the index.
+  const searchTerm = `AIE-CACHE ${normalizeQuery(key.query)}`;
+  const q = encodeURIComponent(searchTerm);
   const res = await fetchWithTimeout(
-    `${PI_BRAIN_BASE}/memories/search?q=${q}&limit=5`,
+    `${PI_BRAIN_BASE}/memories/search?q=${q}&limit=20`,
     {
       method: 'GET',
       headers: {
