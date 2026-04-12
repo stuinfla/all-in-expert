@@ -19,8 +19,11 @@ const PI_BRAIN_KEY = process.env.PI_BRAIN_API_KEY || 'brain-ui';
 const CACHE_TAG = 'all-in-expert';
 const CACHE_VERSION = 'aie-v1';
 const CACHE_TTL_MS = 72 * 60 * 60 * 1000; // 72h
-const LOOKUP_TIMEOUT_MS = 1200;
-const STORE_TIMEOUT_MS = 2500;
+// Pi.ruv.io cold connect from Vercel fn can take ~1-1.5s, plus actual query.
+// We accept up to 3s on lookup because a hit saves us 10+ seconds; a miss
+// still means we only spent 3s of extra latency before falling through.
+const LOOKUP_TIMEOUT_MS = 3000;
+const STORE_TIMEOUT_MS = 4000;
 
 export interface CachedResponse {
   report: string;
