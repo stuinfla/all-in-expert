@@ -46,6 +46,18 @@ function getEpisodeDates(): Record<string, string> {
   return episodeDatesCache!;
 }
 
+let idfCache: Record<string, number> | null = null;
+function getIdf(): Record<string, number> {
+  if (idfCache) return idfCache;
+  const idfPath = join(DATA_DIR, 'idf.json');
+  if (!existsSync(idfPath)) {
+    idfCache = {};
+    return idfCache;
+  }
+  idfCache = JSON.parse(readFileSync(idfPath, 'utf8'));
+  return idfCache!;
+}
+
 /**
  * Compute a recency weight multiplier for a given episode date.
  * Recent episodes get full weight (1.0); old episodes decay gently to a 0.4 floor.
@@ -129,35 +141,98 @@ async function semanticSearch(query: string, limit = 30, speakerFilter?: string 
     }
   }
 
-  // Keyword fallback (also recency-weighted)
-  const queryWords = query
+  // ─── TF-IDF keyword search (heavy weight on rare terms) ─────
+  // Tokenize query — keep everything of length 3+
+  const queryTokens = query
     .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((w) => w.length > 3);
+    .filter((w) => w.length >= 3);
+
+  // Stopwords — no signal for retrieval
   const stopWords = new Set([
     'what', 'would', 'will', 'about', 'think', 'they', 'this', 'that', 'from',
-    'have', 'been', 'should', 'could', 'does', 'with', 'going', 'their',
+    'have', 'been', 'should', 'could', 'does', 'with', 'going', 'their', 'then',
+    'than', 'them', 'when', 'where', 'there', 'these', 'those', 'here', 'into',
+    'just', 'like', 'over', 'some', 'such', 'take', 'very', 'much', 'each',
+    'make', 'most', 'said', 'says', 'back', 'been', 'were', 'was', 'are',
+    'you', 'the', 'and', 'for', 'but', 'not', 'has', 'had', 'who', 'why',
+    'how', 'all', 'any', 'can', 'did', 'get', 'got', 'her', 'him', 'his',
+    'its', 'let', 'out', 'see', 'she', 'too', 'two', 'use', 'way',
+    'bestie', 'besties', 'show',
   ]);
-  const terms = queryWords.filter((w) => !stopWords.has(w));
 
+  // Use IDF lookup to weight terms. Terms not in IDF get a moderate default.
+  const idf = getIdf();
+  type QueryTerm = { term: string; weight: number; primary: boolean };
+  const queryTerms: QueryTerm[] = [];
+  const seenTerms = new Set<string>();
+
+  for (const tok of queryTokens) {
+    if (seenTerms.has(tok)) continue;
+    seenTerms.add(tok);
+    if (stopWords.has(tok)) continue;
+    const termIdf = idf[tok] ?? 5.5; // unknown terms assumed rare
+    // Primary term = IDF > 2.5 (appears in < ~8% of docs)
+    queryTerms.push({ term: tok, weight: termIdf, primary: termIdf > 2.5 });
+  }
+
+  const primaryTerms = queryTerms.filter((t) => t.primary);
+  const maxTheoreticalScore = queryTerms.reduce((s, t) => s + t.weight * 3, 0) || 1;
+
+  // Score every document
   const scored: Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }> = [];
   for (const [id, entry] of Object.entries(index)) {
     if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
+
     const content = entry.c.toLowerCase();
-    let score = 0;
-    for (const term of terms) {
-      const regex = new RegExp(`\\b${term}`, 'g');
-      const matches = content.match(regex);
-      if (matches) score += matches.length;
+
+    // Require at least one primary term to appear (huge quality boost)
+    if (primaryTerms.length > 0) {
+      const hasPrimary = primaryTerms.some((pt) => content.includes(pt.term));
+      if (!hasPrimary) continue;
     }
+
+    let score = 0;
+    let matchedPrimary = 0;
+    for (const qt of queryTerms) {
+      // Count occurrences without regex overhead
+      let count = 0;
+      let idx_ = content.indexOf(qt.term);
+      while (idx_ !== -1) {
+        // Word-boundary check to avoid partial matches (manual, no regex)
+        const before = idx_ === 0 ? ' ' : content[idx_ - 1];
+        const after = content[idx_ + qt.term.length] || ' ';
+        if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) {
+          count++;
+        }
+        idx_ = content.indexOf(qt.term, idx_ + qt.term.length);
+      }
+      if (count > 0) {
+        // TF-IDF: saturating TF * IDF weight
+        const tf = 1 + Math.log(count); // log saturation
+        score += tf * qt.weight;
+        if (qt.primary) matchedPrimary++;
+      }
+    }
+
+    // Bonus for matching multiple primary terms (all terms present = best match)
+    if (primaryTerms.length > 1) {
+      const coverage = matchedPrimary / primaryTerms.length;
+      score *= 1 + coverage * 0.5;
+    }
+
     if (score > 0) {
-      const rawDistance = 1 - Math.min(1, score / 10);
+      // Normalize and convert to distance (lower = better)
+      const normalized = Math.min(1, score / (maxTheoreticalScore * 0.5));
+      const rawDistance = 1 - normalized;
       const rec = recencyWeight(entry.v);
       scored.push({ id, entry, rawDistance, distance: rawDistance / rec });
     }
   }
+
   scored.sort((a, b) => a.distance - b.distance);
-  return { results: scored.slice(0, limit), mode: 'keyword' as const };
+  return { results: scored.slice(0, limit), mode: 'tfidf' as const };
 }
 
 // ─── Bestie profiles ─────────────────────────────────────────────
@@ -262,22 +337,31 @@ export async function POST(req: NextRequest) {
     const focus = speaker ? SPEAKER_CONTEXT[speaker] : null;
     const isForecast = mode === 'forecast';
 
-    const systemPrompt = `You are the All-In Expert — an intelligence synthesis system trained on 448 episodes of the All-In Podcast (hosted by Chamath Palihapitiya, David Sacks, David Friedberg, Jason Calacanis, with frequent guest besties like Brad Gerstner, Bill Gurley, Gavin Baker, Peter Thiel, Elon Musk, Naval Ravikant, and others).
+    const systemPrompt = `You are the All-In Expert — an intelligence synthesis engine for the All-In Podcast (Chamath Palihapitiya, David Sacks, David Friedberg, Jason Calacanis, plus frequent guest besties: Brad Gerstner, Bill Gurley, Gavin Baker, Peter Thiel, Bill Ackman, Antonio Gracias, Elon Musk, Naval Ravikant, Travis Kalanick, Mark Cuban, and others).
 
-Your job is to analyze transcript segments retrieved via semantic vector search and synthesize what each bestie would think about a given question.
+You are reading raw transcript segments that were retrieved for a question. These segments come from conversations where the speakers aren't explicitly labeled — you need to infer who is speaking from context clues:
+• Self-references ("I think", "my view")
+• Names the speakers use for each other ("Chamath, Sacks, Freeberg/Friedberg, J-Cal/Jason")
+• Topic expertise (science talk → usually Friedberg, enterprise SaaS → usually Sacks, macro/VC → often Chamath, startups/hosting → Jason)
+• Characteristic phrases and speaking style
+• Guest appearances when named (Gerstner, Gurley, Elon, etc.)
 
-THE BESTIES:
+THE BESTIES AND THEIR LENSES:
 ${speakerProfileText}
 
-IMPORTANT RULES:
-1. Base analysis on the ACTUAL transcript segments provided — cite them by number like [CITATION 3]
-2. When you can identify who is speaking from context, attribute it explicitly ("In [CITATION 5], Chamath argues…")
-3. Distinguish what they HAVE said (evidence) vs what they WOULD LIKELY say (inference from their lens)
-4. Be specific about their reasoning style, not generic
-5. Quote verbatim fragments when they directly answer the question
-6. Rate confidence: HIGH (direct quotes found), MEDIUM (strong inference from patterns), LOW (extrapolation only)
-7. Format with markdown headers (##, ###), bold (**), italic (*), bullet points (-)
-8. Keep the response focused and not padded — quality over quantity`;
+YOUR JOB:
+1. Read every segment carefully. The rare topic word in the query (e.g. "Anthropic", "tariffs", "DOGE") has been used for retrieval — those segments DO contain real discussion of it, even if the exact word density is low.
+2. PULL VERBATIM QUOTES. When a segment contains an exchange like ">> position X" or ">> yeah but Y", attribute the speakers and quote directly. Use em-dashes to open quotes: —"the debt is like plaque in the arteries" (Chamath, on 2025 Dalio interview).
+3. Attribute speakers using context — if a segment is clearly Chamath (uses his phrases, referenced as "you" when the speaker before said "Chamath"), say so explicitly.
+4. If there's a PRESENT tense discussion from a recent episode (look at the segment timestamps and the "voices" metadata), cite it as their current view. Recency beats inference.
+5. If segments genuinely don't touch the topic, say "The segments retrieved don't contain direct discussion of X from [bestie]" — don't pad with hypotheticals. But work hard first to find what IS there.
+6. Confidence: HIGH when you have direct quotes, MEDIUM when inference from clear patterns, LOW only when extrapolating from lens alone.
+7. Format: markdown headers (##), bold (**), italic (*), bullet lists (-). No em-dashes for list bullets (use "-"). Keep it tight.
+8. Cite segments by number like [1], [3], [5] — these match the citation cards shown to the user.
+
+WHEN THE QUERY TARGETS ONE BESTIE: work harder to find direct quotes from them specifically. Scan all 15 segments for speaking patterns that match their voice.
+
+WHEN YOU CAN'T FIND DIRECT QUOTES: be honest that the available segments don't capture them on this exact topic, but still try to extract what their position WOULD be from their lens and any adjacent commentary.`;
 
     let userPrompt: string;
 
