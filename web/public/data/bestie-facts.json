@@ -1,0 +1,68 @@
+{
+  "chamath": {
+    "name": "Chamath Palihapitiya",
+    "role": "Founder/CEO, Social Capital; former Facebook VP",
+    "political_alignment": "Publicly endorsed Donald Trump for president in 2024. Previously identified as Democrat; now calls himself independent but votes Republican. Hosted Trump fundraiser with Sacks in June 2024.",
+    "current_positions": [
+      "Macro contrarian, skeptical of the Fed and government spending",
+      "Bullish on Bitcoin, AI, and nuclear energy",
+      "Critical of wokeness and DEI policies",
+      "Supports DOGE and government efficiency efforts"
+    ],
+    "style": "Blunt, numbers-first, loves 80-year debt cycles and Ray Dalio frameworks"
+  },
+  "sacks": {
+    "name": "David Sacks",
+    "role": "White House AI & Crypto Czar in the Trump Administration (appointed December 2024, took office January 2025). Also GP at Craft Ventures. Former PayPal COO.",
+    "political_alignment": "REPUBLICAN. Full stop. He is a senior Trump administration official. He delivered a keynote speech at the 2024 Republican National Convention in Milwaukee in July 2024, where he attacked Biden's foreign policy and endorsed Trump. He hosted a major Trump fundraiser at his San Francisco home on June 6, 2024, which raised about $12M in a night and was covered extensively on the podcast itself. He is by every reasonable measure a partisan Republican. DO NOT describe him as 'moderate,' 'independent,' 'in the middle,' or 'centrist' — that is factually wrong.",
+    "current_positions": [
+      "Pro-crypto regulatory reform (he is literally the Crypto Czar)",
+      "Pro-AI deregulation, wants US to win the AI race against China",
+      "Opposed Biden AI Executive Order, pushed Trump to reverse it",
+      "Skeptical of NATO/Ukraine aid, dovish on foreign intervention",
+      "Anti-censorship, critical of mainstream media",
+      "Strongly pro-Israel, hawkish on Iran",
+      "Part of the 'all-in on DOGE' faction"
+    ],
+    "style": "Measured, methodical, builds arguments brick by brick. Frames issues as systems problems. Rarely raises his voice, rarely backs down."
+  },
+  "friedberg": {
+    "name": "David Friedberg",
+    "role": "Founder/CEO, The Production Board; former Google employee; founded The Climate Corporation",
+    "political_alignment": "Politically independent, libertarian-leaning. Often reframes political debates into economic or scientific questions. Voted for Trump in 2024 according to his public statements. Skeptical of both parties but has moved right in recent years.",
+    "current_positions": [
+      "Pro-technology, pro-innovation, pro-biotech",
+      "Skeptical of climate doom narratives, prefers pragmatic solutions",
+      "Pro-nuclear energy and next-gen agriculture",
+      "Data-first on immigration, health policy, drug policy",
+      "Bullish on GLP-1 drugs and longevity research"
+    ],
+    "style": "First principles thinker. Starts with 'let me step back' and reframes the question scientifically. Brings hard data to soft debates."
+  },
+  "calacanis": {
+    "name": "Jason Calacanis",
+    "short": "Jason",
+    "role": "Founder/CEO, LAUNCH. Angel investor (early Uber, Robinhood, Calm, Trello). Host of This Week in Startups. Co-host and moderator of the All-In Podcast.",
+    "political_alignment": "Historically moderate/liberal, voted for Biden in 2020. Has become increasingly critical of the progressive left on economic and cultural issues. In 2024 was openly Trump-curious but publicly ambivalent; generally plays the center/devil's-advocate role on the pod.",
+    "current_positions": [
+      "Pro-founder, pro-startup ecosystem",
+      "Critical of SF/CA governance",
+      "Pro-immigration for skilled workers (H-1B debate)",
+      "Moderate on most political issues, enjoys playing devil's advocate",
+      "Media operator perspective"
+    ],
+    "style": "Host energy. Opens topics, interrupts, hypes, asks the uncomfortable question. 'This is wild,' 'banger,' 'best episode ever.'"
+  },
+  "gerstner": {
+    "name": "Brad Gerstner",
+    "role": "Founder/CEO, Altimeter Capital",
+    "political_alignment": "Publicly supported the Trump 2024 campaign's tech coalition. Generally free-market Republican. Co-founded 'Leaders for American Innovation'.",
+    "current_positions": [
+      "Long-term tech growth investor",
+      "Bullish on AI infrastructure, US tech dominance",
+      "Pro-DOGE and government efficiency",
+      "Advocates for H-1B expansion for top talent"
+    ],
+    "style": "Measured, analytical, references specific companies and metrics. Focuses on what endures."
+  }
+}

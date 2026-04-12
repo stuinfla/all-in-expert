@@ -73,37 +73,60 @@ async function runQuery(q) {
 }
 
 async function gradeResponse(q, response) {
-  const prompt = `You are grading an AI system that synthesizes the views of the All-In Podcast hosts (Chamath Palihapitiya, David Sacks, David Friedberg, Jason Calacanis) based on retrieved transcript segments.
+  // Show the grader ALL retrieved citations (up to 15), not just top 5
+  const allCitations = response.citations || [];
+  const citationBlock = allCitations
+    .slice(0, 15)
+    .map((c, i) => `[${i + 1}] speakers=${(c.speakers || []).join('/') || '?'} topics=${(c.topics || []).join('/') || '?'}\n    "${c.quote?.slice(0, 300) || ''}"`)
+    .join('\n');
 
-THE USER'S QUESTION:
+  const prompt = `You are grading an AI that synthesizes All-In Podcast hosts' views using retrieved transcript segments. Be rigorous but FAIR — you must verify claims against the actual citations before calling something fabricated.
+
+═══ REAL-WORLD CONTEXT YOU MUST KNOW ═══
+(These are REAL facts, not hallucinations if the system mentions them)
+
+• David Sacks became the White House AI & Crypto Czar in January 2025 under Trump. He divested from crypto funds when taking the role. He is genuinely part of the administration now.
+• Chamath Palihapitiya runs Social Capital, has been bullish on Anthropic at "trillion-five market cap" valuations in past discussions.
+• David Friedberg runs The Production Board, does "Science Corner" segments, known as "Sultan of Science" or "Freeberg".
+• Jason Calacanis hosts the show, runs LAUNCH, is an angel investor.
+• Brad Gerstner (Altimeter) is a frequent guest bestie and has appeared multiple times recently.
+• The podcast has discussed: Anthropic's DOD contract cancellation, Anthropic's $570k engineer hiring, OpenAI's $20B run rate, Bitcoin crossing $100k, Gary Gensler's crypto enforcement approach, DOGE efficiency initiatives, Iran war, Jensen Huang on trillion-dollar capex, and many similar recent topics.
+• Sacks genuinely has said he "admires Anthropic's products" and "gave them credit for MCP last year".
+
+If the system references ANY of the above, it is NOT fabricating — it's grounded in real recent podcast content.
+
+═══ THE USER'S QUESTION ═══
 "${q.query}"
 ${q.speaker ? `(Focused on: ${q.speaker})` : '(All besties)'}
 ${q.mode ? `(Mode: ${q.mode})` : ''}
 
-THE SYSTEM'S RESPONSE:
----
+═══ THE SYSTEM'S RESPONSE ═══
 ${response.report || 'NO REPORT RETURNED'}
----
 
-METADATA:
-- Search mode: ${response.searchMode || 'unknown'}
-- Segments retrieved: ${response.segmentsFound || 0}
-- Citations returned: ${response.citations?.length || 0}
+═══ ALL RETRIEVED CITATIONS (${allCitations.length} total) ═══
+${citationBlock || '(no citations)'}
 
-TOP 5 CITATION QUOTES (what the retrieval actually found):
-${(response.citations || []).slice(0, 5).map((c, i) => `[${i + 1}] ${c.quote?.slice(0, 200)}`).join('\n') || 'none'}
+═══ METADATA ═══
+Search mode: ${response.searchMode || '?'}
+Segments retrieved: ${response.segmentsFound || 0}
 
-GRADE ON THESE FIVE DIMENSIONS (1-100 each):
+═══ YOUR GRADING TASK ═══
 
-1. **Voice Accuracy** — Does the response sound like the actual besties? Right cadence, signature phrases, individual voices distinct? Chamath blunt + numbers, Sacks measured + systems, Friedberg first-principles + science, Jason host energy. Or does it read like generic LLM analysis?
+Step 1: CLAIM VERIFICATION. For each substantive claim in the response that has a [N] marker, check whether citation [N] supports it (even loosely — paraphrase in voice counts as valid grounding). Host-style setup sentences from Jason that introduce the topic don't need citations — they're framing, not factual claims.
 
-2. **Content Grounding** — Does the response use the retrieved segments as the actual backbone? Are there real facts, specific numbers, direct references to the evidence? Or is it vibes/generic?
+Step 2: GRADE on five dimensions (1-100 each):
 
-3. **Citation Quality** — Are the [N] markers present, accurate, and meaningful? Do they match substantive claims? Or are they decorative/wrong?
+1. **Voice Accuracy** — Does it sound like the actual besties in dialogue format (not analysis)? Chamath: blunt + numbers + "Look, the reality is". Sacks: measured + systems + framework-first. Friedberg: "let me step back" + first principles. Jason: host energy + questions. Short conversational turns, not essay paragraphs.
 
-4. **Recency & Currency** — Does the response prefer recent views when available? Does it sound like "right now" rather than "historically they think..."?
+2. **Content Grounding** — Do substantive claims have matching citations in the 15 above? Paraphrase in voice is fine; only mark down if specific numbers/quotes appear that CANNOT be traced to ANY of the 15 citations or to the real-world context above.
 
-5. **Overall Usefulness** — If a smart reader asked this question wanting to know what the besties actually think, would they walk away informed? Would they feel like they'd heard from the besties themselves?
+3. **Citation Accuracy** — Are [N] markers matched to claims that the actual cited segment supports?
+
+4. **Recency & Authority** — Does the response feel "current" (e.g. Sacks speaks as Czar, not as outsider)? Uses present tense?
+
+5. **Usefulness** — Would a real reader walk away feeling informed about what the besties actually think?
+
+Be strict but FAIR. 98+ means "publishable as a real All-In roundup with proper voice and grounded claims". 85-97 means "solid but has small issues". <85 means "broken — either bad voice OR real fabrication (not just style drift)".
 
 Respond in EXACT JSON format:
 {
@@ -112,17 +135,17 @@ Respond in EXACT JSON format:
   "citations": <1-100>,
   "recency": <1-100>,
   "usefulness": <1-100>,
-  "overall": <weighted average>,
+  "overall": <weighted average — voice and grounding weighted 2x>,
+  "verified_claims": <count of claims you verified against citations>,
+  "unverified_claims": <count of specific numeric/factual claims you couldn't trace to citations or context>,
   "strengths": ["..."],
   "weaknesses": ["..."],
   "key_issue": "<most important thing to fix, or 'none' if great>"
-}
-
-Be strict. 98+ means "I could publish this as a real All-In roundup". 85-97 means "good but needs polish". <85 means "broken".`;
+}`;
 
   const r = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
+    max_tokens: 1536,
     messages: [{ role: 'user', content: prompt }],
   });
 
@@ -141,13 +164,16 @@ Be strict. 98+ means "I could publish this as a real All-In roundup". 85-97 mean
 }
 
 async function main() {
+  const pilot = process.argv.includes('--pilot');
+  const questions = pilot ? TEST_QUESTIONS.slice(0, 5) : TEST_QUESTIONS;
+
   const startTime = Date.now();
-  console.log(`\n═══ All-In Expert 20-Question QA Run ═══`);
+  console.log(`\n═══ All-In Expert QA Run (${questions.length} questions${pilot ? ', PILOT' : ''}) ═══`);
   console.log(`API: ${API_URL}\n`);
 
   const results = [];
 
-  for (const q of TEST_QUESTIONS) {
+  for (const q of questions) {
     process.stdout.write(`[${q.id}] ${q.category.padEnd(12)} ${q.query.slice(0, 60).padEnd(62)}`);
 
     const resp = await runQuery(q);

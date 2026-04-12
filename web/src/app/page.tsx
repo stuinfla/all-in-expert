@@ -223,6 +223,7 @@ interface Bestie {
 interface Citation {
   n: number;
   time: string;
+  date?: string | null;
   videoId: string;
   url: string;
   topics: string[];
@@ -871,6 +872,15 @@ export default function Home() {
                       <div className="ml-14">
                         {/* Metadata row */}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3 font-mono text-[10px] tracking-wider uppercase text-[var(--ink-mute)]">
+                          {c.date && (
+                            <span className="text-[var(--gold-bright)]">
+                              {new Date(c.date).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                          )}
                           <span className="text-[var(--gold)]">{c.time}</span>
                           {c.speakers.length > 0 && (
                             <>

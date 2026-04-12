@@ -107,6 +107,19 @@ async function embedQuery(query: string): Promise<Float32Array> {
   return new Float32Array(output.data);
 }
 
+// Load bestie facts once per cold start — these are ground-truth overrides
+let bestieFactsCache: Record<string, any> | null = null;
+function getBestieFacts(): Record<string, any> {
+  if (bestieFactsCache) return bestieFactsCache;
+  const path = join(DATA_DIR, 'bestie-facts.json');
+  if (!existsSync(path)) {
+    bestieFactsCache = {};
+    return bestieFactsCache;
+  }
+  bestieFactsCache = JSON.parse(readFileSync(path, 'utf8'));
+  return bestieFactsCache!;
+}
+
 /**
  * Semantic search: embed query, search RVF (HNSW), then hydrate with content.
  * Falls back to keyword search if RVF unavailable.
@@ -317,7 +330,7 @@ export async function POST(req: NextRequest) {
         const topics = r.entry.p.join(', ');
         const speakers = r.entry.m.length > 0 ? ` · voices: ${r.entry.m.join(', ')}` : '';
         const epDate = epDates[r.entry.v] || 'date-unknown';
-        return `[CITATION ${i + 1}] episode: ${epDate} · ${r.entry.t} · ${topics}${speakers}\nURL: ${r.entry.u}\nSEGMENT: "${r.entry.c.slice(0, 700)}"`;
+        return `[${i + 1}] episode-date: ${epDate} · timestamp: ${r.entry.t} · topics: ${topics}${speakers}\nSEGMENT: "${r.entry.c.slice(0, 600)}"`;
       })
       .join('\n\n');
 
@@ -325,6 +338,7 @@ export async function POST(req: NextRequest) {
     const citations = results.slice(0, 10).map((r, i) => ({
       n: i + 1,
       time: r.entry.t,
+      date: epDates[r.entry.v] || null,
       videoId: r.entry.v,
       url: r.entry.u,
       topics: r.entry.p,
@@ -332,6 +346,15 @@ export async function POST(req: NextRequest) {
       quote: r.entry.c.slice(0, 400),
       relevance: Number((1 - r.distance).toFixed(3)),
     }));
+
+    // Load ground-truth facts about each bestie — OVERRIDES anything fuzzy from retrieval
+    const bestieFacts = getBestieFacts();
+    const factsText = Object.entries(bestieFacts)
+      .map(([, f]: [string, any]) => {
+        const positions = (f.current_positions || []).map((p: string) => `  - ${p}`).join('\n');
+        return `• **${f.name}** — ${f.role}\n  Political: ${f.political_alignment}\n  Current positions:\n${positions}\n  Voice: ${f.style}`;
+      })
+      .join('\n\n');
 
     const speakerProfileText = Object.entries(SPEAKER_CONTEXT)
       .map(([, s]) => `• ${s.name} (${s.short}, ${s.tier}) — ${s.lens} | Style: ${s.style}`)
@@ -343,6 +366,14 @@ export async function POST(req: NextRequest) {
     const systemPrompt = `You are writing in the voices of the All-In Podcast hosts. You have read hundreds of hours of their actual transcripts and know exactly how each one speaks, argues, and thinks.
 
 YOU ARE NOT WRITING ANALYSIS. You are writing a synthesized round-table discussion — as if the four besties were together right now, debating the user's question. The output should read like a fresh All-In segment, not like an academic report about them.
+
+═══ GROUND-TRUTH FACTS (AUTHORITATIVE, OVERRIDE RETRIEVAL) ═══
+
+These are verified facts about the besties. If the retrieved transcript segments are ambiguous or contradictory on any of these points, THESE FACTS WIN. Never describe a bestie's political alignment, current role, or basic biography in a way that contradicts this section. The transcripts are the source for WHAT they've said on topics, but these facts are the source for WHO THEY ARE.
+
+${factsText}
+
+IMPORTANT: If the user asks "is X a Democrat or Republican?" or "what party does X support?" or "who did X vote for?", answer from the GROUND-TRUTH FACTS above, not from retrieval. Never hedge on verifiable facts.
 
 ═══ THE VOICES ═══
 
@@ -457,8 +488,8 @@ Remember: SHORT turns (1-3 sentences), direct quotes where available, their actu
 
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 3500,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1800,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
