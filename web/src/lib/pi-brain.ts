@@ -81,13 +81,19 @@ function memSet(titleHash: string, value: CachedResponse) {
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
-  timeoutMs: number
+  timeoutMs: number,
+  label = 'pi-brain'
 ): Promise<Response | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const t0 = Date.now();
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } catch {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    console.log(`[${label}] ${init.method || 'GET'} ${url.slice(0, 80)} → ${res.status} in ${Date.now() - t0}ms`);
+    return res;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[${label}] ${init.method || 'GET'} FAILED after ${Date.now() - t0}ms: ${msg}`);
     return null;
   } finally {
     clearTimeout(timer);
@@ -126,7 +132,8 @@ export async function cacheLookup(
         Accept: 'application/json',
       },
     },
-    LOOKUP_TIMEOUT_MS
+    LOOKUP_TIMEOUT_MS,
+    'pi-brain.lookup'
   );
   if (!res || !res.ok) return null;
 
@@ -193,7 +200,8 @@ export async function cacheStore(
       },
       body,
     },
-    STORE_TIMEOUT_MS
+    STORE_TIMEOUT_MS,
+    'pi-brain.store'
   );
 }
 
