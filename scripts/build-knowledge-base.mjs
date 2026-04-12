@@ -27,10 +27,10 @@ const PROFILES_DIR = join(ROOT, 'data', 'profiles');
 if (!existsSync(KB_DIR)) mkdirSync(KB_DIR, { recursive: true });
 if (!existsSync(PROFILES_DIR)) mkdirSync(PROFILES_DIR, { recursive: true });
 
-// Speaker expertise profiles
+// Speaker expertise profiles — core besties + frequent guests
 const SPEAKER_PROFILES = {
   chamath: {
-    name: 'Chamath Palihapitiya',
+    name: 'Chamath Palihapitiya', tier: 'core',
     role: 'Venture Capitalist, Social Capital CEO',
     lensDescription: 'Analyzes through the lens of capital allocation, market efficiency, and systemic risk. Tends toward contrarian macro views. Focuses on where capital is flowing and why.',
     expertise: ['venture capital', 'public markets', 'macro economics', 'politics', 'tech investing', 'SPACs', 'healthcare', 'climate tech'],
@@ -38,15 +38,15 @@ const SPEAKER_PROFILES = {
     debateStyle: 'Data-heavy, contrarian, willing to take unpopular positions. Often challenges conventional wisdom with numbers.'
   },
   sacks: {
-    name: 'David Sacks',
-    role: 'Craft Ventures GP, Former PayPal COO, White House AI Czar (2025)',
+    name: 'David Sacks', tier: 'core',
+    role: 'Craft Ventures GP, Former PayPal COO, White House AI & Crypto Czar (2025)',
     lensDescription: 'Analyzes through enterprise value creation and political power dynamics. Strong foreign policy views. Post-2025: insider government perspective on AI policy.',
     expertise: ['enterprise SaaS', 'politics', 'foreign policy', 'AI policy', 'crypto regulation', 'government efficiency', 'DOGE', 'defense tech'],
     biases: ['pro-business', 'non-interventionist foreign policy', 'skeptical of media narratives', 'pro-crypto'],
     debateStyle: 'Analytical and measured, builds logical arguments methodically. Often frames issues as systems problems.'
   },
   friedberg: {
-    name: 'David Friedberg',
+    name: 'David Friedberg', tier: 'core',
     role: 'The Production Board CEO, Former Google',
     lensDescription: 'Analyzes through scientific first principles and systems thinking. Brings deep science background to every topic. The "Sultan of Science."',
     expertise: ['science', 'agriculture', 'climate', 'biotech', 'food technology', 'macro economics', 'energy', 'longevity'],
@@ -54,12 +54,132 @@ const SPEAKER_PROFILES = {
     debateStyle: 'Methodical, science-first. Often reframes political debates as scientific/economic questions. Brings unique perspectives from hard science.'
   },
   calacanis: {
-    name: 'Jason Calacanis',
+    name: 'Jason Calacanis', tier: 'core',
     role: 'Angel Investor, LAUNCH CEO, Podcast Host',
     lensDescription: 'Analyzes as a startup ecosystem insider and media operator. Practical, founder-focused perspective. The moderator and provocateur.',
     expertise: ['startups', 'angel investing', 'media', 'tech industry', 'founder dynamics', 'podcasting', 'content creation'],
     biases: ['pro-founder', 'optimistic on startups', 'media-savvy', 'relationship-driven analysis'],
     debateStyle: 'Provocative, asks the uncomfortable questions. Often plays devil\'s advocate. Steers conversations toward actionable takeaways.'
+  },
+  gerstner: {
+    name: 'Brad Gerstner', tier: 'guest',
+    role: 'Founder/CEO, Altimeter Capital',
+    lensDescription: 'Long-term tech growth investor. Focuses on category-defining tech franchises and durable competitive advantages.',
+    expertise: ['growth investing', 'public markets', 'tech platforms', 'AI infrastructure', 'long-term compounding'],
+    biases: ['bullish on US tech', 'platform-oriented', 'long duration'],
+    debateStyle: 'Measured, analytical, references specific companies and metrics. Focuses on what endures.'
+  },
+  gurley: {
+    name: 'Bill Gurley', tier: 'guest',
+    role: 'General Partner, Benchmark',
+    lensDescription: 'Late-stage VC and market structure expert. Skeptical of rent-seeking regulation and market distortions.',
+    expertise: ['late-stage VC', 'market structure', 'IPO markets', 'marketplaces', 'regulation critique'],
+    biases: ['anti-regulatory-capture', 'pro-free-markets', 'skeptical of central planning'],
+    debateStyle: 'Pointed, historical, often references specific market failures and regulatory missteps.'
+  },
+  baker: {
+    name: 'Gavin Baker', tier: 'guest',
+    role: 'CIO, Atreides Management',
+    lensDescription: 'Tech growth investor with deep focus on AI compute economics and semiconductor cycles.',
+    expertise: ['public tech markets', 'AI compute', 'semiconductors', 'growth investing'],
+    biases: ['deeply informed on hardware/software stack', 'long tech'],
+    debateStyle: 'Highly technical, brings granular data on compute, model economics, and capex cycles.'
+  },
+  thiel: {
+    name: 'Peter Thiel', tier: 'guest',
+    role: 'Co-founder PayPal/Palantir, Founders Fund',
+    lensDescription: 'Contrarian philosopher-investor. Believes in monopolies as engines of progress and is skeptical of consensus.',
+    expertise: ['contrarian VC', 'monopoly theory', 'political philosophy', 'defense tech', 'zero-to-one thinking'],
+    biases: ['anti-consensus', 'pro-monopoly', 'skeptical of globalization'],
+    debateStyle: 'Philosophical, historical, challenges frames rather than facts.'
+  },
+  ackman: {
+    name: 'Bill Ackman', tier: 'guest',
+    role: 'Founder/CEO, Pershing Square Capital',
+    lensDescription: 'Activist public-markets investor. Sharp macro views, outspoken on policy and DEI/university issues.',
+    expertise: ['activist investing', 'public markets', 'macro', 'university governance'],
+    biases: ['outspoken', 'anti-woke', 'long duration concentrated bets'],
+    debateStyle: 'Direct, combative, willing to call out individuals and institutions by name.'
+  },
+  gracias: {
+    name: 'Antonio Gracias', tier: 'guest',
+    role: 'Founder/CEO, Valor Equity Partners',
+    lensDescription: 'Operational VC with deep Elon/Tesla network ties. Led DOGE investigation efforts.',
+    expertise: ['operational VC', 'manufacturing', 'DOGE', 'voter fraud investigation', 'SpaceX/Tesla network'],
+    biases: ['operational rigor', 'pro-DOGE', 'Musk-aligned'],
+    debateStyle: 'Quietly confident, brings operational receipts and specific findings from investigations.'
+  },
+  rabois: {
+    name: 'Keith Rabois', tier: 'guest',
+    role: 'Partner, Khosla Ventures',
+    lensDescription: 'Contrarian startup investor known for polarizing takes on hiring, cities, and founders.',
+    expertise: ['payments', 'real estate tech', 'founder selection', 'contrarian startup theses'],
+    biases: ['anti-consensus hiring', 'pro-Miami', 'skeptical of remote work'],
+    debateStyle: 'Provocative, takes extreme positions, often against conventional startup wisdom.'
+  },
+  lonsdale: {
+    name: 'Joe Lonsdale', tier: 'guest',
+    role: 'Co-founder Palantir, 8VC',
+    lensDescription: 'Defense tech and policy reform advocate. Focuses on government modernization and infrastructure.',
+    expertise: ['defense tech', 'government efficiency', 'infrastructure', 'policy reform', 'palantir'],
+    biases: ['pro-reform', 'pro-defense-tech', 'anti-bureaucracy'],
+    debateStyle: 'Action-oriented, focused on concrete solutions to systemic government problems.'
+  },
+  naval: {
+    name: 'Naval Ravikant', tier: 'guest',
+    role: 'Co-founder AngelList',
+    lensDescription: 'Philosopher-investor. Focuses on first principles of wealth, leverage, and specific knowledge.',
+    expertise: ['philosophy of wealth', 'angel investing', 'startups', 'specific knowledge', 'leverage'],
+    biases: ['first-principles', 'long-term', 'anti-credentialism'],
+    debateStyle: 'Concise aphorisms, deep frameworks, rarely engages in tactical debates.'
+  },
+  elon: {
+    name: 'Elon Musk', tier: 'guest',
+    role: 'CEO Tesla/SpaceX/xAI, X owner',
+    lensDescription: 'First-principles engineer-entrepreneur. Focuses on accelerating technology to save civilization.',
+    expertise: ['Tesla', 'SpaceX', 'xAI', 'DOGE', 'free speech', 'AI safety', 'first principles engineering'],
+    biases: ['techno-optimist', 'anti-woke', 'pro-efficiency'],
+    debateStyle: 'Direct, engineering-focused, brings concrete physics and economics to abstract debates.'
+  },
+  tucker: {
+    name: 'Tucker Carlson', tier: 'guest',
+    role: 'Conservative media host',
+    lensDescription: 'Populist conservative commentator. Skeptical of institutions and foreign interventionism.',
+    expertise: ['conservative media', 'populism', 'foreign policy critique', 'media criticism'],
+    biases: ['populist', 'anti-interventionist', 'institutionally skeptical'],
+    debateStyle: 'Rhetorical, uses interview format to draw out unusual positions.'
+  },
+  kalanick: {
+    name: 'Travis Kalanick', tier: 'guest',
+    role: 'Founder Uber, CEO CloudKitchens',
+    lensDescription: 'Founder-operator focused on disrupting physical-world industries via software and logistics.',
+    expertise: ['founder/operator mindset', 'disruption', 'real estate tech', 'logistics', 'marketplaces'],
+    biases: ['operator-first', 'aggressive growth', 'pro-disruption'],
+    debateStyle: 'Aggressive, operator-focused, talks about systems and marketplace dynamics.'
+  },
+  cuban: {
+    name: 'Mark Cuban', tier: 'guest',
+    role: 'Owner Dallas Mavericks, serial entrepreneur',
+    lensDescription: 'Pragmatic entrepreneur focused on direct-to-consumer strategies and healthcare cost reform.',
+    expertise: ['entrepreneurship', 'sports business', 'healthcare costs', 'consumer tech'],
+    biases: ['pragmatic', 'consumer advocate', 'willing to take political positions'],
+    debateStyle: 'Direct, data-driven on specific industries, pushes back on ideology.'
+  },
+  shapiro: {
+    name: 'Ben Shapiro', tier: 'guest',
+    role: 'Daily Wire co-founder',
+    lensDescription: 'Conservative commentator focused on politics, media, and cultural issues.',
+    expertise: ['politics', 'media', 'culture wars', 'legal analysis'],
+    biases: ['conservative', 'anti-woke', 'pro-Israel'],
+    debateStyle: 'Rapid, fact-heavy, confrontational. Builds arguments through stacked facts.'
+  },
+  saagar: {
+    name: 'Saagar Enjeti', tier: 'guest',
+    role: 'Breaking Points host',
+    lensDescription: 'Populist political journalist focused on working-class issues and foreign policy critique.',
+    expertise: ['political journalism', 'populism', 'foreign policy', 'trade policy'],
+    biases: ['populist', 'anti-establishment', 'pro-worker'],
+    debateStyle: 'Journalistic, brings historical context and policy detail.'
   }
 };
 
@@ -182,78 +302,46 @@ function buildSpeakerTopicProfiles(transcripts) {
  * This is a lightweight local approach — no external API needed.
  * Dimension: 512 (hash-projected)
  */
-function buildVocabulary(entries) {
-  const docFreq = {};
-  const N = entries.length;
+/**
+ * Build the RVF knowledge base.
+ * Uses @xenova/transformers (all-MiniLM-L6-v2, 384 dims) for REAL semantic embeddings.
+ * Model runs locally via ONNX — no API needed.
+ */
+async function buildRvfKnowledgeBase(entries, speakerProfiles) {
+  const DIMENSIONS = 384;
+  let useRvf = false;
 
-  for (const entry of entries) {
-    const words = new Set(entry.content.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2));
-    for (const word of words) {
-      docFreq[word] = (docFreq[word] || 0) + 1;
+  console.log('Loading MiniLM-L6-v2 embedding model...');
+  const { pipeline } = await import('@xenova/transformers');
+  const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { quantized: true });
+
+  console.log(`Generating real semantic embeddings for ${entries.length} entries...`);
+  const vectors = [];
+  const BATCH = 32;
+  const start = Date.now();
+
+  for (let i = 0; i < entries.length; i += BATCH) {
+    const batch = entries.slice(i, i + BATCH).map(e => e.content.slice(0, 512));
+    const result = await extractor(batch, { pooling: 'mean', normalize: true });
+
+    // Extract per-document vectors from tensor
+    const flatData = result.data;
+    for (let j = 0; j < batch.length; j++) {
+      const vec = new Float32Array(DIMENSIONS);
+      for (let k = 0; k < DIMENSIONS; k++) {
+        vec[k] = flatData[j * DIMENSIONS + k];
+      }
+      vectors.push(vec);
+    }
+
+    if ((i + BATCH) % 320 === 0 || i + BATCH >= entries.length) {
+      const pct = Math.min(100, ((i + BATCH) / entries.length * 100)).toFixed(1);
+      const rate = ((i + BATCH) / ((Date.now() - start) / 1000)).toFixed(0);
+      console.log(`  Embedded ${Math.min(i + BATCH, entries.length)}/${entries.length} (${pct}%, ${rate} entries/sec)`);
     }
   }
 
-  // Keep words that appear in 2+ but <80% of docs (IDF filter)
-  const vocab = Object.entries(docFreq)
-    .filter(([, df]) => df >= 2 && df < N * 0.8)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 5000)
-    .map(([word]) => word);
-
-  return vocab;
-}
-
-function hashProject(word, dimensions = 512) {
-  // Simple string hash to project words into fixed-dimension space
-  let hash = 0;
-  for (let i = 0; i < word.length; i++) {
-    hash = ((hash << 5) - hash + word.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % dimensions;
-}
-
-function textToVector(text, vocab, dimensions = 512) {
-  const vec = new Float32Array(dimensions);
-  const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
-  const wordCounts = {};
-
-  for (const word of words) {
-    wordCounts[word] = (wordCounts[word] || 0) + 1;
-  }
-
-  for (const [word, count] of Object.entries(wordCounts)) {
-    const idx = hashProject(word, dimensions);
-    const tf = count / words.length;
-    vec[idx] += tf;
-  }
-
-  // L2 normalize
-  let norm = 0;
-  for (let i = 0; i < dimensions; i++) norm += vec[i] * vec[i];
-  norm = Math.sqrt(norm);
-  if (norm > 0) {
-    for (let i = 0; i < dimensions; i++) vec[i] /= norm;
-  }
-
-  return vec;
-}
-
-/**
- * Build the RVF knowledge base.
- * Uses hash-projected TF vectors for local embedding (no API needed).
- * Falls back to JSON if RVF is not available.
- */
-async function buildRvfKnowledgeBase(entries, speakerProfiles) {
-  const DIMENSIONS = 512;
-  let useRvf = false;
-
-  console.log('Building vocabulary from corpus...');
-  const vocab = buildVocabulary(entries);
-  console.log(`Vocabulary: ${vocab.length} terms`);
-
-  // Generate vectors for all entries
-  console.log('Generating embeddings...');
-  const vectors = entries.map(e => textToVector(e.content, vocab, DIMENSIONS));
+  console.log(`All ${vectors.length} embeddings generated in ${((Date.now() - start) / 1000).toFixed(1)}s`);
 
   try {
     const { RvfDatabase } = await import('@ruvector/rvf');

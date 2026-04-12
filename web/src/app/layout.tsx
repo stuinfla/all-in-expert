@@ -1,20 +1,35 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Inter_Tight, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const fraunces = Fraunces({
+  variable: "--font-display",
   subsets: ["latin"],
+  axes: ["SOFT", "WONK", "opsz"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const interTight = Inter_Tight({
+  variable: "--font-body",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Ask the All-In Experts",
-  description: "AI-powered intelligence from 450+ episodes of the All-In Podcast. Ask what Chamath, Sacks, Friedberg, and Jason would think about any topic.",
+  description:
+    "Intelligence from 450+ episodes of the All-In Podcast. Ask what Chamath, Sacks, Friedberg, Jason and the guest besties would think about any topic. Real citations, real forecasts.",
+  openGraph: {
+    title: "Ask the All-In Experts",
+    description: "5.8 million words. Four minds (plus guests). One intelligence system.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -25,9 +40,9 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${fraunces.variable} ${interTight.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-[var(--bg)] text-[var(--ink)]">{children}</body>
     </html>
   );
 }

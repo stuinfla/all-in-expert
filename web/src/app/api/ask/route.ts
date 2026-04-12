@@ -3,11 +3,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
-// Content index is bundled in public/data/ — ships with Vercel deployment
-const DATA_DIR = join(process.cwd(), 'public', 'data');
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
 
-// Lazy-loaded content index (cached in memory after first request)
-let contentIndex: Record<string, ContentEntry> | null = null;
+// Content + RVF are bundled in public/data/ — ships with Vercel deployment
+const DATA_DIR = join(process.cwd(), 'public', 'data');
 
 interface ContentEntry {
   c: string;   // text content
@@ -19,70 +19,153 @@ interface ContentEntry {
   u: string;   // youtube URL
 }
 
-const SPEAKER_CONTEXT: Record<string, { name: string; short: string; lens: string; style: string }> = {
-  chamath: {
-    name: 'Chamath Palihapitiya',
-    short: 'Chamath',
-    lens: 'Venture capitalist (Social Capital). Analyzes via capital allocation, market efficiency, systemic risk. Contrarian macro views.',
-    style: 'Bold, contrarian, numbers-heavy. Takes unpopular positions backed by data.'
-  },
-  sacks: {
-    name: 'David Sacks',
-    short: 'Sacks',
-    lens: 'Enterprise SaaS investor (Craft Ventures), former PayPal COO. From Jan 2025: White House AI & Crypto Czar. Pro-business, non-interventionist foreign policy.',
-    style: 'Analytical, measured, builds logical arguments. Frames issues as systems problems.'
-  },
-  friedberg: {
-    name: 'David Friedberg',
-    short: 'Friedberg',
-    lens: 'CEO of The Production Board. Deep science background (former Google). "Sultan of Science." First-principles thinker on climate, biotech, food, energy.',
-    style: 'Methodical, science-first. Reframes political debates as scientific/economic questions.'
-  },
-  calacanis: {
-    name: 'Jason Calacanis',
-    short: 'Jason',
-    lens: 'Angel investor, LAUNCH CEO, podcast host/moderator. Startup ecosystem insider and media operator.',
-    style: "Provocative, asks uncomfortable questions, plays devil's advocate. Steers toward actionable takeaways."
-  }
-};
+// ─── Lazy caches ────────────────────────────────────────────────
+let contentIndexCache: Record<string, ContentEntry> | null = null;
+let embedderCache: any = null;
+let rvfCache: any = null;
 
-function loadContentIndex(): Record<string, ContentEntry> {
-  if (contentIndex) return contentIndex;
-
+async function getContentIndex(): Promise<Record<string, ContentEntry>> {
+  if (contentIndexCache) return contentIndexCache;
   const indexPath = join(DATA_DIR, 'content-index.json');
   if (!existsSync(indexPath)) {
-    throw new Error('Content index not found. Run: bash scripts/refresh-kb.sh');
+    throw new Error('Content index not found');
   }
-
-  contentIndex = JSON.parse(readFileSync(indexPath, 'utf8'));
-  return contentIndex!;
+  contentIndexCache = JSON.parse(readFileSync(indexPath, 'utf8'));
+  return contentIndexCache!;
 }
 
-function keywordSearch(index: Record<string, ContentEntry>, query: string, limit = 20) {
-  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const stopWords = new Set(['what', 'would', 'will', 'about', 'think', 'they', 'this',
-    'that', 'from', 'have', 'been', 'should', 'could', 'does', 'with', 'going', 'their']);
-  const searchTerms = queryWords.filter(w => !stopWords.has(w));
+async function getEmbedder() {
+  if (embedderCache) return embedderCache;
+  const { pipeline, env } = await import('@xenova/transformers');
+  // Allow local-only model loading from node_modules
+  (env as any).allowRemoteModels = true;
+  (env as any).allowLocalModels = true;
+  embedderCache = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+    quantized: true,
+  });
+  return embedderCache;
+}
 
-  const results: Array<{ id: string; entry: ContentEntry; score: number }> = [];
+async function getRvf() {
+  if (rvfCache) return rvfCache;
+  try {
+    const { RvfDatabase } = await import('@ruvector/rvf');
+    const rvfPath = join(DATA_DIR, 'all-in-expert.rvf');
+    if (!existsSync(rvfPath)) return null;
+    rvfCache = await RvfDatabase.openReadonly(rvfPath);
+    return rvfCache;
+  } catch {
+    return null;
+  }
+}
 
+async function embedQuery(query: string): Promise<Float32Array> {
+  const embedder = await getEmbedder();
+  const output = await embedder(query, { pooling: 'mean', normalize: true });
+  return new Float32Array(output.data);
+}
+
+/**
+ * Semantic search: embed query, search RVF (HNSW), then hydrate with content.
+ * Falls back to keyword search if RVF unavailable.
+ */
+async function semanticSearch(query: string, limit = 30, speakerFilter?: string | null) {
+  const index = await getContentIndex();
+  const db = await getRvf();
+
+  if (db) {
+    try {
+      const queryVec = await embedQuery(query);
+      const rvfResults = await db.query(queryVec, limit * 2, { efSearch: 200 });
+      const hydrated: Array<{ id: string; entry: ContentEntry; distance: number }> = [];
+      for (const r of rvfResults) {
+        const entry = index[r.id];
+        if (!entry) continue;
+        // Speaker filter if requested
+        if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
+        hydrated.push({ id: r.id, entry, distance: r.distance });
+        if (hydrated.length >= limit) break;
+      }
+      if (hydrated.length > 0) {
+        return { results: hydrated, mode: 'semantic' as const };
+      }
+    } catch (err) {
+      console.error('RVF search failed, falling back to keyword:', err);
+    }
+  }
+
+  // Keyword fallback
+  const queryWords = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 3);
+  const stopWords = new Set([
+    'what', 'would', 'will', 'about', 'think', 'they', 'this', 'that', 'from',
+    'have', 'been', 'should', 'could', 'does', 'with', 'going', 'their',
+  ]);
+  const terms = queryWords.filter((w) => !stopWords.has(w));
+
+  const scored: Array<{ id: string; entry: ContentEntry; distance: number }> = [];
   for (const [id, entry] of Object.entries(index)) {
+    if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
     const content = entry.c.toLowerCase();
     let score = 0;
-    for (const term of searchTerms) {
+    for (const term of terms) {
       const regex = new RegExp(`\\b${term}`, 'g');
       const matches = content.match(regex);
       if (matches) score += matches.length;
     }
-    if (score > 0) results.push({ id, entry, score });
+    if (score > 0) {
+      scored.push({ id, entry, distance: 1 - Math.min(1, score / 10) });
+    }
   }
-
-  return results
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+  scored.sort((a, b) => a.distance - b.distance);
+  return { results: scored.slice(0, limit), mode: 'keyword' as const };
 }
 
-export const maxDuration = 60;
+// ─── Bestie profiles ─────────────────────────────────────────────
+
+const SPEAKER_CONTEXT: Record<string, { name: string; short: string; lens: string; style: string; tier: 'core' | 'guest' }> = {
+  chamath: {
+    name: 'Chamath Palihapitiya', short: 'Chamath', tier: 'core',
+    lens: 'Venture capitalist (Social Capital). Capital allocation, market efficiency, systemic risk. Contrarian macro views.',
+    style: 'Bold, contrarian, numbers-heavy. Takes unpopular positions backed by data.',
+  },
+  sacks: {
+    name: 'David Sacks', short: 'Sacks', tier: 'core',
+    lens: 'Enterprise SaaS investor (Craft Ventures), former PayPal COO. Jan 2025+: White House AI & Crypto Czar.',
+    style: 'Analytical, measured, builds logical arguments. Frames issues as systems problems.',
+  },
+  friedberg: {
+    name: 'David Friedberg', short: 'Friedberg', tier: 'core',
+    lens: 'The Production Board CEO. Science first-principles. Called "Sultan of Science." Often "Freeberg" in transcripts.',
+    style: 'Methodical, science-first. Reframes political debates as scientific/economic questions.',
+  },
+  calacanis: {
+    name: 'Jason Calacanis', short: 'Jason', tier: 'core',
+    lens: 'Angel investor, LAUNCH CEO, podcast host/moderator. Startup ecosystem insider.',
+    style: "Provocative, asks uncomfortable questions, plays devil's advocate.",
+  },
+  gerstner: { name: 'Brad Gerstner', short: 'Gerstner', tier: 'guest', lens: 'Altimeter Capital. Long-term tech growth. Category-defining franchises.', style: 'Measured, analytical, references specific companies and metrics.' },
+  gurley: { name: 'Bill Gurley', short: 'Gurley', tier: 'guest', lens: 'Benchmark GP. Late-stage VC and market structure. Skeptical of regulatory capture.', style: 'Pointed, historical, references market failures and missteps.' },
+  baker: { name: 'Gavin Baker', short: 'Baker', tier: 'guest', lens: 'Atreides Management CIO. AI compute economics and semiconductor cycles.', style: 'Highly technical, brings granular data on compute and capex.' },
+  thiel: { name: 'Peter Thiel', short: 'Thiel', tier: 'guest', lens: 'Founders Fund, Palantir co-founder. Contrarian philosophy, monopoly theory.', style: 'Philosophical, challenges frames rather than facts.' },
+  ackman: { name: 'Bill Ackman', short: 'Ackman', tier: 'guest', lens: 'Pershing Square. Activist public-markets investor. Sharp macro views.', style: 'Direct, combative, names individuals and institutions.' },
+  gracias: { name: 'Antonio Gracias', short: 'Gracias', tier: 'guest', lens: 'Valor Equity. Operational VC, deep Elon/Tesla network. Led DOGE investigations.', style: 'Quietly confident, brings operational receipts.' },
+  elon: { name: 'Elon Musk', short: 'Elon', tier: 'guest', lens: 'Tesla/SpaceX/xAI. First-principles engineer-entrepreneur.', style: 'Direct, engineering-focused, brings concrete physics to abstract debates.' },
+  naval: { name: 'Naval Ravikant', short: 'Naval', tier: 'guest', lens: 'AngelList co-founder. Philosopher-investor on wealth and leverage.', style: 'Concise aphorisms, deep frameworks.' },
+  tucker: { name: 'Tucker Carlson', short: 'Tucker', tier: 'guest', lens: 'Populist conservative media. Skeptical of institutions and interventionism.', style: 'Rhetorical, interview format.' },
+  rabois: { name: 'Keith Rabois', short: 'Rabois', tier: 'guest', lens: 'Khosla Ventures. Contrarian startup investor.', style: 'Provocative, takes extreme positions.' },
+  lonsdale: { name: 'Joe Lonsdale', short: 'Lonsdale', tier: 'guest', lens: 'Palantir co-founder, 8VC. Defense tech and policy reform.', style: 'Action-oriented, concrete solutions.' },
+  cuban: { name: 'Mark Cuban', short: 'Cuban', tier: 'guest', lens: 'Serial entrepreneur. Direct-to-consumer, healthcare cost reform.', style: 'Direct, data-driven on specific industries.' },
+  kalanick: { name: 'Travis Kalanick', short: 'Kalanick', tier: 'guest', lens: 'Uber founder, CloudKitchens CEO. Physical-world disruption.', style: 'Aggressive, operator-focused.' },
+  shapiro: { name: 'Ben Shapiro', short: 'Shapiro', tier: 'guest', lens: 'Daily Wire. Conservative commentary.', style: 'Rapid, fact-heavy, confrontational.' },
+  saagar: { name: 'Saagar Enjeti', short: 'Saagar', tier: 'guest', lens: 'Breaking Points. Populist political journalism.', style: 'Journalistic, historical context.' },
+};
+
+function sec(ms: number) {
+  return Math.max(0, Math.floor(ms / 1000));
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -97,106 +180,151 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
     }
 
-    const index = loadContentIndex();
-    const totalEntries = Object.keys(index).length;
+    // Semantic search with optional speaker filter
+    const { results, mode: searchMode } = await semanticSearch(
+      query,
+      30,
+      speaker || null
+    );
 
-    if (totalEntries === 0) {
-      return NextResponse.json({ error: 'Knowledge base is empty' }, { status: 500 });
+    if (results.length === 0) {
+      return NextResponse.json({
+        report: 'No relevant segments found in the archive for this query. Try rephrasing or asking about a different topic.',
+        segmentsFound: 0,
+        totalEntries: Object.keys(await getContentIndex()).length,
+        searchMode,
+      });
     }
 
-    const segments = keywordSearch(index, query, 30);
-
-    const segmentText = segments
+    // Build citation-enriched segment text for the LLM
+    const segmentText = results
       .slice(0, 15)
-      .map((s, i) => {
-        const topics = s.entry.p.join(', ');
-        return `--- Segment ${i + 1} [${s.entry.t}] (Topics: ${topics}) ---\n${s.entry.c.slice(0, 600)}\n${s.entry.u}`;
+      .map((r, i) => {
+        const topics = r.entry.p.join(', ');
+        const speakers = r.entry.m.length > 0 ? ` · voices: ${r.entry.m.join(', ')}` : '';
+        return `[CITATION ${i + 1}] ${r.entry.t} · ${topics}${speakers}\nURL: ${r.entry.u}\nTEXT: "${r.entry.c.slice(0, 700)}"`;
       })
       .join('\n\n');
 
-    const speakerProfiles = Object.entries(SPEAKER_CONTEXT)
-      .map(([, s]) => `**${s.name} (${s.short})**: ${s.lens}\nStyle: ${s.style}`)
-      .join('\n\n');
+    // Structured citations for the response (frontend renders these separately)
+    const citations = results.slice(0, 10).map((r, i) => ({
+      n: i + 1,
+      time: r.entry.t,
+      videoId: r.entry.v,
+      url: r.entry.u,
+      topics: r.entry.p,
+      speakers: r.entry.m,
+      quote: r.entry.c.slice(0, 400),
+      relevance: Number((1 - r.distance).toFixed(3)),
+    }));
 
-    const focusSpeaker = speaker ? SPEAKER_CONTEXT[speaker] : null;
+    const speakerProfileText = Object.entries(SPEAKER_CONTEXT)
+      .map(([, s]) => `• ${s.name} (${s.short}, ${s.tier}) — ${s.lens} | Style: ${s.style}`)
+      .join('\n');
+
+    const focus = speaker ? SPEAKER_CONTEXT[speaker] : null;
     const isForecast = mode === 'forecast';
 
-    const systemPrompt = `You are the All-In Expert — an intelligence system trained on 450+ episodes of the All-In Podcast (Chamath Palihapitiya, David Sacks, David Friedberg, Jason Calacanis).
+    const systemPrompt = `You are the All-In Expert — an intelligence synthesis system trained on 448 episodes of the All-In Podcast (hosted by Chamath Palihapitiya, David Sacks, David Friedberg, Jason Calacanis, with frequent guest besties like Brad Gerstner, Bill Gurley, Gavin Baker, Peter Thiel, Elon Musk, Naval Ravikant, and others).
 
-Your job is to analyze transcript segments and synthesize what each "bestie" would think about a given question.
+Your job is to analyze transcript segments retrieved via semantic vector search and synthesize what each bestie would think about a given question.
 
-THE FOUR BESTIES:
-${speakerProfiles}
+THE BESTIES:
+${speakerProfileText}
 
-RULES:
-1. Base analysis on the ACTUAL transcript segments provided — cite specific moments
-2. When you can identify who is speaking from context, attribute it
-3. Distinguish what they HAVE said (evidence) vs what they WOULD LIKELY say (inference)
-4. Be specific about reasoning style, not generic
-5. Include YouTube links to relevant segments
-6. Rate confidence: HIGH (direct quotes), MEDIUM (strong inference), LOW (extrapolation)
-7. Format with markdown headers and bullet points for readability`;
+IMPORTANT RULES:
+1. Base analysis on the ACTUAL transcript segments provided — cite them by number like [CITATION 3]
+2. When you can identify who is speaking from context, attribute it explicitly ("In [CITATION 5], Chamath argues…")
+3. Distinguish what they HAVE said (evidence) vs what they WOULD LIKELY say (inference from their lens)
+4. Be specific about their reasoning style, not generic
+5. Quote verbatim fragments when they directly answer the question
+6. Rate confidence: HIGH (direct quotes found), MEDIUM (strong inference from patterns), LOW (extrapolation only)
+7. Format with markdown headers (##, ###), bold (**), italic (*), bullet points (-)
+8. Keep the response focused and not padded — quality over quantity`;
 
     let userPrompt: string;
 
-    if (focusSpeaker) {
+    if (focus) {
       userPrompt = `QUESTION: "${query}"
 
-FOCUS: What would ${focusSpeaker.name} think?
+FOCUS: What would ${focus.name} think about this?
 
-Relevant transcript segments:
+Here are the top semantic matches from the archive (scored by vector similarity):
+
 ${segmentText}
 
-Provide:
-1. **${focusSpeaker.short}'s Position**: Based on established views
-2. **Key Evidence**: Specific segments supporting this
-3. **Their Reasoning**: Using their analytical lens
-4. **Confidence Level**: How certain we are
-5. **Relevant Episodes**: YouTube links`;
+Provide a focused brief:
+## ${focus.short}'s Position
+(2-3 sentences summarizing their take)
+
+## Evidence From The Archive
+(Bullet points with citation refs like [CITATION 3], including direct quotes when they exist)
+
+## Their Analytical Lens
+(How they would frame/argue this, tied to their known expertise)
+
+## Confidence: HIGH/MEDIUM/LOW
+(One sentence explaining why)`;
     } else if (isForecast) {
       userPrompt = `FORECASTING QUESTION: "${query}"
 
-Relevant transcript segments:
+Here are the top semantic matches from the archive:
+
 ${segmentText}
 
-Provide a FORECAST REPORT:
-1. **Chamath's Forecast**: Prediction + reasoning (macro/capital lens)
-2. **Sacks' Forecast**: Prediction + reasoning (enterprise/political lens)
-3. **Friedberg's Forecast**: Prediction + reasoning (science/first-principles lens)
-4. **Jason's Forecast**: Prediction + reasoning (startup/media lens)
-5. **Consensus**: Where they agree/disagree
-6. **Confidence**: How reliable based on track record
-7. **Sources**: YouTube links`;
+Produce a forecast report:
+## The Forecast
+(One clear prediction in 1-2 sentences)
+
+## Bestie Positions
+### Chamath (macro/capital lens)
+### Sacks (enterprise/political lens)
+### Friedberg (science/first-principles lens)
+### Jason (startup/media lens)
+(Each with prediction + reasoning + citation refs)
+
+## Where They Agree
+## Where They Diverge
+## Confidence Assessment
+(Based on evidence strength and their historical accuracy)`;
     } else {
       userPrompt = `QUESTION: "${query}"
 
-Relevant transcript segments:
+Here are the top semantic matches from the archive:
+
 ${segmentText}
 
-Provide a BESTIE INTELLIGENCE REPORT:
-1. **Chamath's Take**: What + why + evidence
-2. **Sacks' Take**: What + why + evidence
-3. **Friedberg's Take**: What + why + evidence
-4. **Jason's Take**: What + why + evidence
-5. **Consensus View**: Alignments and divergences
-6. **Confidence**: HIGH/MEDIUM/LOW per bestie
-7. **Sources**: YouTube links`;
+Produce an intelligence brief:
+## Quick Answer
+(2-3 sentence consensus answer)
+
+## Chamath's Take
+## Sacks' Take
+## Friedberg's Take
+## Jason's Take
+(Each with their likely position + citation refs like [CITATION 3] + brief reasoning)
+
+## Where They Agree
+## Where They Diverge
+## Confidence: HIGH/MEDIUM/LOW`;
     }
 
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      max_tokens: 3500,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }]
+      messages: [{ role: 'user', content: userPrompt }],
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
 
     return NextResponse.json({
       report: text,
-      segmentsFound: segments.length,
-      totalEntries
+      citations,
+      segmentsFound: results.length,
+      totalEntries: Object.keys(await getContentIndex()).length,
+      searchMode,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';

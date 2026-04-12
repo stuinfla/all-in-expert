@@ -24,31 +24,103 @@ const EPISODES_FILE = join(ROOT, 'data', 'episodes', 'episodes_metadata.json');
 
 if (!existsSync(TRANSCRIPTS_DIR)) mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
 
-// Known speakers and their name variants in transcripts
+// Known speakers — core besties plus frequent guest besties
 const SPEAKERS = {
   chamath: {
-    name: 'Chamath Palihapitiya',
-    short: 'Chamath',
+    name: 'Chamath Palihapitiya', short: 'Chamath', tier: 'core',
     aliases: ['chamath', 'palihapitiya', 'chamath palihapitiya'],
-    expertise: ['venture capital', 'public markets', 'macro economics', 'politics', 'social capital', 'SPACs']
+    expertise: ['venture capital', 'public markets', 'macro economics', 'politics', 'SPACs']
   },
   sacks: {
-    name: 'David Sacks',
-    short: 'Sacks',
-    aliases: ['sacks', 'david sacks', 'the rain man'],
-    expertise: ['enterprise SaaS', 'politics', 'foreign policy', 'AI', 'crypto', 'government efficiency']
+    name: 'David Sacks', short: 'Sacks', tier: 'core',
+    aliases: ['sacks', 'david sacks', 'the rain man', 'sacky'],
+    expertise: ['enterprise SaaS', 'politics', 'foreign policy', 'AI', 'crypto', 'DOGE']
   },
   friedberg: {
-    name: 'David Friedberg',
-    short: 'Friedberg',
-    aliases: ['friedberg', 'david friedberg', 'the sultan of science', 'science corner'],
-    expertise: ['science', 'agriculture', 'climate', 'biotech', 'macro economics', 'food technology']
+    name: 'David Friedberg', short: 'Friedberg', tier: 'core',
+    aliases: ['friedberg', 'david friedberg', 'the sultan of science', 'science corner', 'freeberg'],
+    expertise: ['science', 'agriculture', 'climate', 'biotech', 'food technology']
   },
   calacanis: {
-    name: 'Jason Calacanis',
-    short: 'Jason',
+    name: 'Jason Calacanis', short: 'Jason', tier: 'core',
     aliases: ['jason', 'calacanis', 'jason calacanis', 'j-cal', 'jcal'],
-    expertise: ['startups', 'media', 'angel investing', 'tech industry', 'podcasting']
+    expertise: ['startups', 'media', 'angel investing', 'podcasting']
+  },
+  // Guest besties — frequent contributors
+  gerstner: {
+    name: 'Brad Gerstner', short: 'Gerstner', tier: 'guest',
+    aliases: ['gerstner', 'brad gerstner'],
+    expertise: ['growth investing', 'public markets', 'tech', 'altimeter']
+  },
+  gurley: {
+    name: 'Bill Gurley', short: 'Gurley', tier: 'guest',
+    aliases: ['gurley', 'bill gurley'],
+    expertise: ['late-stage VC', 'market structure', 'startup scaling', 'benchmark']
+  },
+  baker: {
+    name: 'Gavin Baker', short: 'Baker', tier: 'guest',
+    aliases: ['gavin baker', 'gavin'],
+    expertise: ['public markets', 'tech growth', 'atreides']
+  },
+  thiel: {
+    name: 'Peter Thiel', short: 'Thiel', tier: 'guest',
+    aliases: ['peter thiel', 'thiel'],
+    expertise: ['contrarian VC', 'political philosophy', 'monopoly theory', 'founders fund']
+  },
+  ackman: {
+    name: 'Bill Ackman', short: 'Ackman', tier: 'guest',
+    aliases: ['bill ackman', 'ackman'],
+    expertise: ['activist investing', 'public markets', 'macro', 'pershing square']
+  },
+  gracias: {
+    name: 'Antonio Gracias', short: 'Gracias', tier: 'guest',
+    aliases: ['antonio gracias', 'gracias'],
+    expertise: ['operational VC', 'manufacturing', 'valor equity', 'DOGE investigator']
+  },
+  rabois: {
+    name: 'Keith Rabois', short: 'Rabois', tier: 'guest',
+    aliases: ['keith rabois', 'rabois'],
+    expertise: ['payments', 'real estate tech', 'khosla ventures', 'contrarian startups']
+  },
+  lonsdale: {
+    name: 'Joe Lonsdale', short: 'Lonsdale', tier: 'guest',
+    aliases: ['joe lonsdale', 'lonsdale'],
+    expertise: ['defense tech', 'palantir', '8vc', 'policy reform']
+  },
+  naval: {
+    name: 'Naval Ravikant', short: 'Naval', tier: 'guest',
+    aliases: ['naval', 'naval ravikant', 'ravikant'],
+    expertise: ['philosophy', 'wealth building', 'angellist', 'startups']
+  },
+  elon: {
+    name: 'Elon Musk', short: 'Elon', tier: 'guest',
+    aliases: ['elon', 'elon musk', 'musk'],
+    expertise: ['tesla', 'spacex', 'xAI', 'DOGE', 'free speech', 'first principles']
+  },
+  tucker: {
+    name: 'Tucker Carlson', short: 'Tucker', tier: 'guest',
+    aliases: ['tucker', 'tucker carlson'],
+    expertise: ['conservative media', 'politics', 'populism']
+  },
+  kalanick: {
+    name: 'Travis Kalanick', short: 'Kalanick', tier: 'guest',
+    aliases: ['travis kalanick', 'kalanick', 'travis'],
+    expertise: ['founder operator', 'uber', 'cloudkitchens', 'real estate tech']
+  },
+  cuban: {
+    name: 'Mark Cuban', short: 'Cuban', tier: 'guest',
+    aliases: ['mark cuban', 'cuban'],
+    expertise: ['serial entrepreneur', 'dallas mavericks', 'consumer tech']
+  },
+  shapiro: {
+    name: 'Ben Shapiro', short: 'Shapiro', tier: 'guest',
+    aliases: ['ben shapiro', 'shapiro'],
+    expertise: ['conservative commentary', 'daily wire', 'politics', 'culture']
+  },
+  saagar: {
+    name: 'Saagar Enjeti', short: 'Saagar', tier: 'guest',
+    aliases: ['saagar', 'saagar enjeti', 'enjeti'],
+    expertise: ['political journalism', 'breaking points', 'populism', 'policy']
   }
 };
 
