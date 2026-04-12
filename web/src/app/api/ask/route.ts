@@ -472,24 +472,42 @@ Format:
 5. **## The dissent** — where one or two of them are out of step
 6. **Confidence:** HIGH/MEDIUM/LOW based on segment evidence`;
     } else {
-      // DEFAULT: voice-matched round-table dialogue
+      // DEFAULT: classify first, then either factual answer OR round-table
       userPrompt = `QUESTION: "${query}"
 
-Produce a round-table discussion in the voices of the four besties (as specified in your system prompt). The output should read like a transcript of a fresh All-In segment about this exact question.
+═══ STEP 1: CLASSIFY THE QUESTION ═══
 
-Here are the retrieved transcript segments (your only source of truth — use their actual words when possible):
+Decide silently which type this is:
+- **BIOGRAPHICAL FACT** — asks about a bestie's identity, party affiliation, current role, biography, or verifiable life facts. Examples: "Is Sacks a Republican?", "Who is Brad Gerstner?", "What's Chamath's background?", "Does Friedberg work at Google?"
+- **TOPICAL OPINION** — asks about their views, takes, predictions, or analysis of a subject. Examples: "What does Chamath think about tariffs?", "Are the besties bullish on AI?", "Will Bitcoin hit 200k?"
+
+═══ STEP 2: RESPOND BASED ON CLASSIFICATION ═══
+
+**IF BIOGRAPHICAL FACT:**
+Give a DIRECT ANSWER in 2-4 sentences from the GROUND-TRUTH FACTS section of your system prompt. No dialogue. No hedging. No "it's complicated." No "they say they're..." — just state the fact as it is. Then add a short context paragraph explaining how they arrived at their current position. Example for "Is Sacks a Republican?":
+
+> David Sacks is a Republican. He is the White House AI & Crypto Czar in the Trump administration, appointed by President Trump in December 2024 and serving since January 2025. He delivered a keynote speech at the 2024 Republican National Convention and hosted a major Trump fundraiser in June 2024. While Sacks has sometimes described himself as an independent or former Democrat, his current affiliation — by both formal role and public advocacy — is unambiguously Republican.
+>
+> The shift is part of a broader realignment among Silicon Valley operators who moved right during the 2024 cycle over concerns about regulation, censorship, and the Biden administration's approach to crypto and AI.
+
+NO dialogue, NO citations for biographical facts (the facts come from the system prompt, not retrieval).
+
+**IF TOPICAL OPINION:**
+Produce a round-table discussion in the voices of the four besties. Use the retrieved segments below as the source of truth for their takes, with [N] markers.
+
+Here are the retrieved transcript segments:
 
 ${segmentText}
 
-Format:
+Format for topical:
 1. **JASON:** opens the topic (1-2 sentences)
-2. **CHAMATH, SACKS, FRIEDBERG:** each take a turn, using actual segment content in their voice, with [N] citation markers
-3. Additional back-and-forth — interruptions, agreements, pushback — until the topic is substantially covered (aim for 6-10 turns total)
-4. **## Where they land** — 2-3 bullets of consensus
-5. **## Where they split** — 2-3 bullets of disagreement
+2. **CHAMATH, SACKS, FRIEDBERG:** each take a turn with segment content, [N] markers
+3. Additional back-and-forth (6-10 turns total)
+4. **## Where they land** — 2-3 consensus bullets
+5. **## Where they split** — 2-3 disagreement bullets
 6. **Confidence:** HIGH/MEDIUM/LOW
 
-Remember: SHORT turns (1-3 sentences), direct quotes where available, their actual cadence and signature phrases. This should feel like eavesdropping on a real conversation, not reading a report.`;
+SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descriptions from 2022).`;
     }
 
     const client = new Anthropic({ apiKey });
