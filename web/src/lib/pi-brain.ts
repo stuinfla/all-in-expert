@@ -174,7 +174,7 @@ export async function cacheStore(
   // Fire-and-forget to pi-brain. We don't await downstream — but we DO await
   // in the API route via Promise.allSettled so Vercel doesn't kill the fn early.
   const body = JSON.stringify({
-    category: 'custom',
+    category: 'solution',
     title,
     content: JSON.stringify(value),
     tags: [CACHE_TAG, 'cache', CACHE_VERSION, key.speaker || 'all-speakers'],
