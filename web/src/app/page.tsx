@@ -3,7 +3,32 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 
-/* ─── Symbolic bestie illustrations (abstract, not likeness) ───── */
+/* ─── Bestie photos (Wikimedia Commons, CC/PD) ─────────────────── */
+
+const BESTIE_PHOTOS: Record<string, { src: string; credit: string; license: string }> = {
+  chamath: {
+    src: "/images/besties/chamath.jpg",
+    credit: "Cmichel67",
+    license: "CC BY-SA 4.0",
+  },
+  sacks: {
+    src: "/images/besties/sacks.jpg",
+    credit: "The White House",
+    license: "Public Domain",
+  },
+  friedberg: {
+    src: "/images/besties/friedberg.jpg",
+    credit: "The Production Board",
+    license: "CC BY-SA 4.0",
+  },
+  calacanis: {
+    src: "/images/besties/jason.jpg",
+    credit: "Preshdineshkumar",
+    license: "CC BY-SA 4.0",
+  },
+};
+
+/* ─── Symbolic bestie illustrations (fallback decoration) ──────── */
 
 function ChamathArt() {
   // Capital flows — concentric rings + radial lines in burgundy
@@ -551,7 +576,7 @@ export default function Home() {
               const selected = speaker === b.key;
               const cssVar = `var(--${b.color})`;
               const softVar = `var(--${b.color}-soft)`;
-              const Art = BESTIE_ART[b.key];
+              const photo = BESTIE_PHOTOS[b.key];
               return (
                 <button
                   key={b.key}
@@ -559,29 +584,47 @@ export default function Home() {
                   className="group relative border text-left transition-all duration-300 overflow-hidden"
                   style={{
                     borderColor: selected ? cssVar : "var(--border)",
-                    background: selected ? softVar : "var(--bg-card)",
+                    background: "var(--bg-card)",
                   }}
                 >
-                  {/* Abstract art backdrop */}
-                  <div className="absolute inset-0 opacity-60 group-hover:opacity-100 transition-opacity">
-                    {Art && <Art />}
-                  </div>
+                  {/* Real photo backdrop */}
+                  {photo && (
+                    <img
+                      src={photo.src}
+                      alt=""
+                      className="absolute inset-0 w-full h-full object-cover object-top opacity-65 group-hover:opacity-85 transition-opacity duration-500"
+                      loading="lazy"
+                    />
+                  )}
+
+                  {/* Signature-color tint overlay */}
+                  <div
+                    className="absolute inset-0 mix-blend-multiply opacity-60 group-hover:opacity-40 transition-opacity duration-500"
+                    style={{
+                      background: `linear-gradient(180deg, transparent 30%, ${cssVar} 130%)`,
+                    }}
+                  />
+
+                  {/* Bottom shadow for text readability */}
+                  <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent" />
+
+                  {/* Selection ring */}
+                  {selected && (
+                    <div
+                      className="absolute inset-0 border-2 pointer-events-none"
+                      style={{ borderColor: cssVar }}
+                    />
+                  )}
 
                   {/* Foreground content */}
-                  <div className="relative p-3 sm:p-5 min-h-[120px] sm:min-h-[160px] flex flex-col justify-end">
+                  <div className="relative p-3 sm:p-4 min-h-[140px] sm:min-h-[200px] flex flex-col justify-end">
                     <div
-                      className="font-display text-3xl sm:text-5xl leading-none mb-auto"
-                      style={{ color: selected ? cssVar : "var(--ink)" }}
-                    >
-                      {b.initial}
-                    </div>
-                    <div
-                      className="mt-2 sm:mt-4 font-mono text-[10px] tracking-widest uppercase"
-                      style={{ color: selected ? cssVar : "var(--ink-mute)" }}
+                      className="mt-2 font-mono text-[10px] tracking-widest uppercase font-semibold"
+                      style={{ color: selected ? cssVar : "#fff" }}
                     >
                       {b.short}
                     </div>
-                    <div className="mt-0.5 text-[11px] sm:text-xs text-[var(--ink-dim)] leading-tight hidden sm:block">
+                    <div className="mt-0.5 text-[11px] sm:text-xs text-[#e5e5e5] leading-tight">
                       {b.role}
                     </div>
                   </div>
@@ -966,7 +1009,62 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-[var(--border)] flex items-center justify-between font-mono text-[10px] text-[var(--ink-faint)] tracking-widest uppercase flex-wrap gap-2">
+          {/* Photo attributions — required by CC BY-SA 4.0 */}
+          <div className="mt-8 pt-6 border-t border-[var(--border)] space-y-3">
+            <div className="font-mono text-[10px] text-[var(--ink-mute)] tracking-widest uppercase">
+              § Photo Credits
+            </div>
+            <div className="text-[11px] text-[var(--ink-dim)] leading-relaxed font-display italic">
+              Bestie photographs sourced from{" "}
+              <a
+                href="https://commons.wikimedia.org"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--gold)] hover:text-[var(--gold-bright)]"
+              >
+                Wikimedia Commons
+              </a>
+              :{" "}
+              <a
+                href="https://commons.wikimedia.org/wiki/File:Chamath_Palihapitiya_in_2025.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[var(--gold)]"
+              >
+                Chamath (Cmichel67, CC BY-SA 4.0)
+              </a>
+              {" · "}
+              <a
+                href="https://commons.wikimedia.org/wiki/File:David_Sacks_in_March_2025.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[var(--gold)]"
+              >
+                Sacks (The White House, Public Domain)
+              </a>
+              {" · "}
+              <a
+                href="https://commons.wikimedia.org/wiki/File:David_Albert_Friedberg.jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[var(--gold)]"
+              >
+                Friedberg (The Production Board, CC BY-SA 4.0)
+              </a>
+              {" · "}
+              <a
+                href="https://commons.wikimedia.org/wiki/File:Jason_Calacanis_at_LAUNCH_Festival_2016_(cropped).jpg"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-[var(--gold)]"
+              >
+                Calacanis (Preshdineshkumar, CC BY-SA 4.0)
+              </a>
+              .
+            </div>
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-between font-mono text-[10px] text-[var(--ink-faint)] tracking-widest uppercase flex-wrap gap-2">
             <div>Ask the All-In Experts · Vol. I · MMXXVI</div>
             <div>© {new Date().getFullYear()} IsoVision AI</div>
           </div>
