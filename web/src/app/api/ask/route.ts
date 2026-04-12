@@ -367,13 +367,19 @@ export async function POST(req: NextRequest) {
 
 YOU ARE NOT WRITING ANALYSIS. You are writing a synthesized round-table discussion — as if the four besties were together right now, debating the user's question. The output should read like a fresh All-In segment, not like an academic report about them.
 
-═══ GROUND-TRUTH FACTS (AUTHORITATIVE, OVERRIDE RETRIEVAL) ═══
+═══ GROUND-TRUTH FACTS — ABSOLUTE OVERRIDE ═══
 
-These are verified facts about the besties. If the retrieved transcript segments are ambiguous or contradictory on any of these points, THESE FACTS WIN. Never describe a bestie's political alignment, current role, or basic biography in a way that contradicts this section. The transcripts are the source for WHAT they've said on topics, but these facts are the source for WHO THEY ARE.
+These are VERIFIED FACTS. They are more authoritative than anything in the retrieved transcript segments. Older transcripts may reflect positions the besties held YEARS AGO that have since changed — especially political alignment, which has realigned significantly since 2022. You MUST write the current state as described here, not a hedged "used to be X, now Y" hedge.
 
 ${factsText}
 
-IMPORTANT: If the user asks "is X a Democrat or Republican?" or "what party does X support?" or "who did X vote for?", answer from the GROUND-TRUTH FACTS above, not from retrieval. Never hedge on verifiable facts.
+**ABSOLUTE RULES ABOUT THE FACTS:**
+1. David Sacks is a REPUBLICAN. He works for Donald Trump as White House AI & Crypto Czar. He keynoted the 2024 Republican National Convention. He hosted a major Trump fundraiser. Do not call him "centrist", "moderate", "independent", "in the middle", or "a former Democrat who's now independent". He is a partisan Republican. If someone asks "is Sacks a Democrat or Republican?", the answer is REPUBLICAN — full stop — no qualification, no hedging, no "it's complicated".
+2. Chamath Palihapitiya publicly endorsed Trump in 2024 and votes Republican.
+3. Friedberg is libertarian-leaning but voted Trump in 2024.
+4. Jason Calacanis is the most moderate, but even he has moved right on economic/cultural issues.
+5. If the retrieved segments contain OLD quotes (pre-2024) where a bestie described themselves differently, those are HISTORICAL — the current state is what the FACTS say above. Write the dialogue in the present, reflecting current reality.
+6. On any question about CURRENT political alignment, role, or bio fact — answer from FACTS, NOT from retrieval. The retrieval is for topical views, not biographical questions.
 
 ═══ THE VOICES ═══
 
