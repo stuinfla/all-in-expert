@@ -1,6 +1,186 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
+
+/* ─── Symbolic bestie illustrations (abstract, not likeness) ───── */
+
+function ChamathArt() {
+  // Capital flows — concentric rings + radial lines in burgundy
+  return (
+    <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+      <defs>
+        <radialGradient id="cgrad" cx="50%" cy="50%">
+          <stop offset="0%" stopColor="#c2413a" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#6b1820" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <rect width="120" height="120" fill="url(#cgrad)" />
+      {[48, 38, 28, 18].map((r, i) => (
+        <circle key={r} cx="60" cy="60" r={r} fill="none" stroke="#a8312b" strokeWidth="1" strokeOpacity={0.4 + i * 0.12} />
+      ))}
+      {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => {
+        const rad = (a * Math.PI) / 180;
+        return (
+          <line
+            key={a}
+            x1={60 + 18 * Math.cos(rad)}
+            y1={60 + 18 * Math.sin(rad)}
+            x2={60 + 52 * Math.cos(rad)}
+            y2={60 + 52 * Math.sin(rad)}
+            stroke="#c6a15b"
+            strokeWidth="0.6"
+            strokeOpacity="0.5"
+          />
+        );
+      })}
+      <circle cx="60" cy="60" r="4" fill="#c6a15b" />
+    </svg>
+  );
+}
+
+function SacksArt() {
+  // System grid — connected nodes in steel blue
+  return (
+    <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+      <defs>
+        <linearGradient id="sgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#4a7ea0" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#1f3c56" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect width="120" height="120" fill="url(#sgrad)" />
+      {[20, 40, 60, 80, 100].map((x) =>
+        [20, 40, 60, 80, 100].map((y) => (
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="1.5" fill="#3a6b8c" opacity="0.6" />
+        ))
+      )}
+      {/* Diagonal + horizontal connections */}
+      {[
+        [20, 20, 100, 100],
+        [100, 20, 20, 100],
+        [20, 60, 100, 60],
+        [60, 20, 60, 100],
+      ].map(([x1, y1, x2, y2], i) => (
+        <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3a6b8c" strokeWidth="0.8" strokeOpacity="0.5" />
+      ))}
+      <circle cx="60" cy="60" r="6" fill="none" stroke="#c6a15b" strokeWidth="1" />
+      <circle cx="60" cy="60" r="2" fill="#c6a15b" />
+    </svg>
+  );
+}
+
+function FriedbergArt() {
+  // Molecular hexagonal lattice in moss green
+  return (
+    <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+      <defs>
+        <radialGradient id="fgrad" cx="50%" cy="50%">
+          <stop offset="0%" stopColor="#95a86a" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#3d4a26" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <rect width="120" height="120" fill="url(#fgrad)" />
+      {/* Hexagonal ring pattern */}
+      {(() => {
+        const hexes = [];
+        const cx = 60;
+        const cy = 60;
+        const r = 18;
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          hexes.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+        }
+        return (
+          <>
+            <polygon
+              points={hexes.map((p) => p.join(",")).join(" ")}
+              fill="none"
+              stroke="#7a8c52"
+              strokeWidth="1.2"
+              strokeOpacity="0.7"
+            />
+            {hexes.map(([x, y], i) => (
+              <circle key={i} cx={x} cy={y} r="2.5" fill="#7a8c52" />
+            ))}
+          </>
+        );
+      })()}
+      {/* Bonds to outer atoms */}
+      {[0, 60, 120, 180, 240, 300].map((deg) => {
+        const rad = (deg * Math.PI) / 180;
+        return (
+          <line
+            key={deg}
+            x1={60 + 18 * Math.cos(rad)}
+            y1={60 + 18 * Math.sin(rad)}
+            x2={60 + 44 * Math.cos(rad)}
+            y2={60 + 44 * Math.sin(rad)}
+            stroke="#7a8c52"
+            strokeWidth="0.8"
+            strokeOpacity="0.5"
+          />
+        );
+      })}
+      {[0, 60, 120, 180, 240, 300].map((deg) => {
+        const rad = (deg * Math.PI) / 180;
+        return (
+          <circle
+            key={`o-${deg}`}
+            cx={60 + 44 * Math.cos(rad)}
+            cy={60 + 44 * Math.sin(rad)}
+            r="3"
+            fill="#c6a15b"
+            fillOpacity="0.6"
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+function JasonArt() {
+  // Broadcast radial burst in burnt orange
+  return (
+    <svg viewBox="0 0 120 120" className="w-full h-full" aria-hidden="true">
+      <defs>
+        <radialGradient id="jgrad" cx="50%" cy="50%">
+          <stop offset="0%" stopColor="#e09f50" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#6d4210" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <rect width="120" height="120" fill="url(#jgrad)" />
+      {/* Radial burst — 24 rays */}
+      {Array.from({ length: 24 }).map((_, i) => {
+        const a = (i * 15 * Math.PI) / 180;
+        const r1 = 14 + (i % 3) * 2;
+        const r2 = 38 + (i % 4) * 4;
+        return (
+          <line
+            key={i}
+            x1={60 + r1 * Math.cos(a)}
+            y1={60 + r1 * Math.sin(a)}
+            x2={60 + r2 * Math.cos(a)}
+            y2={60 + r2 * Math.sin(a)}
+            stroke="#d88c3c"
+            strokeWidth="1.2"
+            strokeOpacity="0.65"
+            strokeLinecap="round"
+          />
+        );
+      })}
+      <circle cx="60" cy="60" r="10" fill="none" stroke="#d88c3c" strokeWidth="1.5" />
+      <circle cx="60" cy="60" r="5" fill="#c6a15b" />
+    </svg>
+  );
+}
+
+const BESTIE_ART: Record<string, () => React.ReactElement> = {
+  chamath: ChamathArt,
+  sacks: SacksArt,
+  friedberg: FriedbergArt,
+  calacanis: JasonArt,
+};
 
 /* ─── Bestie roster ──────────────────────────────────────────────── */
 
@@ -131,6 +311,12 @@ export default function Home() {
   const [meta, setMeta] = useState<{ segmentsFound?: number; totalEntries?: number; searchMode?: string }>({});
   const [error, setError] = useState("");
   const [loadingPhrase, setLoadingPhrase] = useState(0);
+  const [freshness, setFreshness] = useState<{
+    updatedAt?: string;
+    episodeCount?: number;
+    chapterCount?: number;
+    latestEpisode?: { title: string; date: string };
+  } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -147,6 +333,14 @@ export default function Home() {
     }, 1800);
     return () => clearInterval(t);
   }, [loading]);
+
+  // Load freshness on mount
+  useEffect(() => {
+    fetch("/api/chapters?weeks=1&limit=1")
+      .then((r) => r.json())
+      .then((d) => setFreshness(d.freshness))
+      .catch(() => {});
+  }, []);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -239,9 +433,21 @@ export default function Home() {
       {/* ─── Header ──────────────────────────────────────────────── */}
       <header className="border-b border-[var(--border)] relative">
         <div className="max-w-5xl mx-auto px-6 pt-10 pb-8 sm:pt-14 sm:pb-12">
+          {/* Top nav */}
+          <nav className="flex items-center justify-between mb-8 gap-3 flex-wrap">
+            <div className="flex items-center gap-4">
+              <div className="eyebrow">№ 01 · Intelligence Dossier</div>
+            </div>
+            <Link
+              href="/chapters"
+              className="font-mono text-[10px] tracking-widest uppercase text-[var(--ink-mute)] hover:text-[var(--gold)] transition border border-[var(--border)] px-3 py-1.5 hover:border-[var(--gold-rule)]"
+            >
+              Episode Archive →
+            </Link>
+          </nav>
+
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="eyebrow mb-3">№ 01 · Intelligence Dossier</div>
               <h1 className="font-display text-5xl sm:text-7xl leading-[0.92] tracking-tight">
                 Ask the
                 <br />
@@ -253,11 +459,40 @@ export default function Home() {
               <p className="mt-5 text-[var(--ink-dim)] text-base sm:text-lg max-w-xl leading-relaxed">
                 Intelligence synthesized from{" "}
                 <span className="text-[var(--gold)] font-mono text-sm tracking-wider">
-                  450+ EPISODES
+                  {freshness?.episodeCount ? `${freshness.episodeCount}+` : "450+"} EPISODES
                 </span>{" "}
-                · <span className="text-[var(--gold)] font-mono text-sm tracking-wider">5.8M WORDS</span>.
-                Four minds, plus the guests that shape the conversation.
+                ·{" "}
+                <span className="text-[var(--gold)] font-mono text-sm tracking-wider">
+                  5.8M WORDS
+                </span>
+                . Four minds, plus the guests that shape the conversation.
               </p>
+
+              {/* Freshness badge */}
+              {freshness?.latestEpisode && (
+                <div className="mt-5 inline-flex items-center gap-3 px-4 py-2 border border-[var(--border-gold)] bg-[var(--gold-soft)]">
+                  <span className="w-2 h-2 rounded-full bg-[var(--gold)] anim-shimmer"></span>
+                  <div className="font-mono text-[9px] sm:text-[10px] tracking-widest uppercase">
+                    <span className="text-[var(--gold-bright)]">Updated</span>{" "}
+                    <span className="text-[var(--ink)]">
+                      {freshness.updatedAt
+                        ? new Date(freshness.updatedAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : ""}
+                    </span>
+                    <span className="text-[var(--ink-mute)]"> · Latest: </span>
+                    <span className="text-[var(--ink)]">
+                      {new Date(freshness.latestEpisode.date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="hidden sm:flex flex-col items-end gap-1 text-right">
               <div className="font-mono text-[10px] tracking-[0.2em] text-[var(--ink-mute)] uppercase">
@@ -316,30 +551,39 @@ export default function Home() {
               const selected = speaker === b.key;
               const cssVar = `var(--${b.color})`;
               const softVar = `var(--${b.color}-soft)`;
+              const Art = BESTIE_ART[b.key];
               return (
                 <button
                   key={b.key}
                   onClick={() => setSpeaker(b.key)}
-                  className="group relative p-3 sm:p-5 border text-left transition-all duration-300"
+                  className="group relative border text-left transition-all duration-300 overflow-hidden"
                   style={{
                     borderColor: selected ? cssVar : "var(--border)",
                     background: selected ? softVar : "var(--bg-card)",
                   }}
                 >
-                  <div
-                    className="font-display text-3xl sm:text-5xl leading-none"
-                    style={{ color: selected ? cssVar : "var(--ink)" }}
-                  >
-                    {b.initial}
+                  {/* Abstract art backdrop */}
+                  <div className="absolute inset-0 opacity-60 group-hover:opacity-100 transition-opacity">
+                    {Art && <Art />}
                   </div>
-                  <div
-                    className="mt-2 sm:mt-4 font-mono text-[10px] tracking-widest uppercase"
-                    style={{ color: selected ? cssVar : "var(--ink-mute)" }}
-                  >
-                    {b.short}
-                  </div>
-                  <div className="mt-0.5 text-[11px] sm:text-xs text-[var(--ink-dim)] leading-tight hidden sm:block">
-                    {b.role}
+
+                  {/* Foreground content */}
+                  <div className="relative p-3 sm:p-5 min-h-[120px] sm:min-h-[160px] flex flex-col justify-end">
+                    <div
+                      className="font-display text-3xl sm:text-5xl leading-none mb-auto"
+                      style={{ color: selected ? cssVar : "var(--ink)" }}
+                    >
+                      {b.initial}
+                    </div>
+                    <div
+                      className="mt-2 sm:mt-4 font-mono text-[10px] tracking-widest uppercase"
+                      style={{ color: selected ? cssVar : "var(--ink-mute)" }}
+                    >
+                      {b.short}
+                    </div>
+                    <div className="mt-0.5 text-[11px] sm:text-xs text-[var(--ink-dim)] leading-tight hidden sm:block">
+                      {b.role}
+                    </div>
                   </div>
                 </button>
               );
@@ -636,12 +880,12 @@ export default function Home() {
 
       {/* ─── Footer ──────────────────────────────────────────────── */}
       <footer className="border-t border-[var(--border)] mt-auto">
-        <div className="max-w-5xl mx-auto px-6 py-8">
-          <div className="rule-gold mb-6" />
-          <div className="grid sm:grid-cols-3 gap-6 items-start">
+        <div className="max-w-5xl mx-auto px-6 py-10">
+          <div className="rule-gold mb-8" />
+          <div className="grid sm:grid-cols-3 gap-8 items-start">
             <div>
-              <div className="eyebrow mb-2">§ Powered By</div>
-              <div className="flex flex-col gap-2 text-sm">
+              <div className="eyebrow mb-3">§ Powered By</div>
+              <div className="flex flex-col gap-2.5 text-sm">
                 <a
                   href="https://github.com/ruvnet/ruvector"
                   target="_blank"
@@ -650,7 +894,7 @@ export default function Home() {
                 >
                   <span className="font-display italic text-base">RuVector</span>
                   <span className="font-mono text-[10px] text-[var(--ink-mute)] group-hover:text-[var(--gold)]">
-                    vector intelligence
+                    · vector intelligence
                   </span>
                   <span className="text-[var(--gold)]">→</span>
                 </a>
@@ -662,7 +906,7 @@ export default function Home() {
                 >
                   <span className="font-display italic text-base">Cognitum One</span>
                   <span className="font-mono text-[10px] text-[var(--ink-mute)] group-hover:text-[var(--gold)]">
-                    hardware partner
+                    · hardware partner
                   </span>
                   <span className="text-[var(--gold)]">→</span>
                 </a>
@@ -673,10 +917,11 @@ export default function Home() {
             </div>
 
             <div>
-              <div className="eyebrow mb-2">§ Archive</div>
+              <div className="eyebrow mb-3">§ Archive</div>
               <div className="flex flex-col gap-1 font-mono text-[11px] text-[var(--ink-dim)] tracking-wider">
                 <div>
-                  <span className="text-[var(--gold)]">448</span> EPISODES
+                  <span className="text-[var(--gold)]">{freshness?.episodeCount || 448}</span>{" "}
+                  EPISODES
                 </div>
                 <div>
                   <span className="text-[var(--gold)]">15,560</span> ENTRIES
@@ -687,19 +932,43 @@ export default function Home() {
                 <div>
                   <span className="text-[var(--gold)]">19</span> VOICES
                 </div>
+                <div>
+                  <span className="text-[var(--gold)]">
+                    {freshness?.chapterCount?.toLocaleString() || "1,288"}
+                  </span>{" "}
+                  TOPICS
+                </div>
               </div>
             </div>
 
-            <div className="sm:text-right">
-              <div className="eyebrow mb-2">§ Disclaimer</div>
-              <div className="text-[11px] text-[var(--ink-mute)] italic leading-relaxed font-display">
-                Not affiliated with the All-In Podcast. An independent research
-                tool for fans & forecasters.
+            <div>
+              <div className="eyebrow mb-3">§ Rights & Credit</div>
+              <div className="text-[12px] text-[var(--ink-dim)] leading-relaxed font-display italic">
+                All podcast content, the &ldquo;All-In&rdquo; name and episode material
+                remain the copyright of the All-In Podcast and its creators (Chamath
+                Palihapitiya, David Sacks, David Friedberg, Jason Calacanis).
+                <br /><br />
+                This is an independent research tool that surfaces publicly-available
+                material to make it more searchable. Not affiliated with the All-In
+                Podcast.
               </div>
-              <div className="font-mono text-[10px] text-[var(--ink-faint)] tracking-widest uppercase mt-3">
-                MMXXVI · Vol. I
+              <div className="mt-4 font-mono text-[10px] text-[var(--ink-mute)] tracking-widest uppercase">
+                Built by{" "}
+                <a
+                  href="https://isovision.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--gold)] hover:text-[var(--gold-bright)] transition"
+                >
+                  IsoVision AI →
+                </a>
               </div>
             </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-[var(--border)] flex items-center justify-between font-mono text-[10px] text-[var(--ink-faint)] tracking-widest uppercase flex-wrap gap-2">
+            <div>Ask the All-In Experts · Vol. I · MMXXVI</div>
+            <div>© {new Date().getFullYear()} IsoVision AI</div>
           </div>
         </div>
       </footer>

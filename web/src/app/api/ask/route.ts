@@ -23,6 +23,7 @@ interface ContentEntry {
 let contentIndexCache: Record<string, ContentEntry> | null = null;
 let embedderCache: any = null;
 let rvfCache: any = null;
+let episodeDatesCache: Record<string, string> | null = null;
 
 async function getContentIndex(): Promise<Record<string, ContentEntry>> {
   if (contentIndexCache) return contentIndexCache;
@@ -32,6 +33,35 @@ async function getContentIndex(): Promise<Record<string, ContentEntry>> {
   }
   contentIndexCache = JSON.parse(readFileSync(indexPath, 'utf8'));
   return contentIndexCache!;
+}
+
+function getEpisodeDates(): Record<string, string> {
+  if (episodeDatesCache) return episodeDatesCache;
+  const datesPath = join(DATA_DIR, 'episode-dates.json');
+  if (!existsSync(datesPath)) {
+    episodeDatesCache = {};
+    return episodeDatesCache;
+  }
+  episodeDatesCache = JSON.parse(readFileSync(datesPath, 'utf8'));
+  return episodeDatesCache!;
+}
+
+/**
+ * Compute a recency weight multiplier for a given episode date.
+ * Recent episodes get full weight (1.0); old episodes decay gently to a 0.4 floor.
+ * Rationale: more recent episodes reflect more information the besties have
+ * processed, making their most recent positions more accurate representations
+ * of current views.
+ */
+function recencyWeight(videoId: string): number {
+  const dates = getEpisodeDates();
+  const dateStr = dates[videoId];
+  if (!dateStr) return 0.85; // unknown date → slight penalty vs known-recent
+  const episodeMs = new Date(dateStr).getTime();
+  const ageDays = (Date.now() - episodeMs) / (1000 * 60 * 60 * 24);
+  if (ageDays < 0) return 1.0;
+  // Exponential decay with 180-day half-life, floored at 0.4
+  return Math.max(0.4, 0.4 + 0.6 * Math.exp(-ageDays / 180));
 }
 
 async function getEmbedder() {
@@ -76,25 +106,30 @@ async function semanticSearch(query: string, limit = 30, speakerFilter?: string 
   if (db) {
     try {
       const queryVec = await embedQuery(query);
-      const rvfResults = await db.query(queryVec, limit * 2, { efSearch: 200 });
-      const hydrated: Array<{ id: string; entry: ContentEntry; distance: number }> = [];
+      // Over-fetch so we have room to rerank by recency
+      const rvfResults = await db.query(queryVec, limit * 3, { efSearch: 250 });
+      const hydrated: Array<{
+        id: string; entry: ContentEntry; distance: number; rawDistance: number;
+      }> = [];
       for (const r of rvfResults) {
         const entry = index[r.id];
         if (!entry) continue;
-        // Speaker filter if requested
         if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
-        hydrated.push({ id: r.id, entry, distance: r.distance });
-        if (hydrated.length >= limit) break;
+        const rec = recencyWeight(entry.v);
+        // distance lower = better; divide by recency so recent = better
+        hydrated.push({ id: r.id, entry, rawDistance: r.distance, distance: r.distance / rec });
       }
-      if (hydrated.length > 0) {
-        return { results: hydrated, mode: 'semantic' as const };
+      hydrated.sort((a, b) => a.distance - b.distance);
+      const top = hydrated.slice(0, limit);
+      if (top.length > 0) {
+        return { results: top, mode: 'semantic' as const };
       }
     } catch (err) {
       console.error('RVF search failed, falling back to keyword:', err);
     }
   }
 
-  // Keyword fallback
+  // Keyword fallback (also recency-weighted)
   const queryWords = query
     .toLowerCase()
     .split(/\s+/)
@@ -105,7 +140,7 @@ async function semanticSearch(query: string, limit = 30, speakerFilter?: string 
   ]);
   const terms = queryWords.filter((w) => !stopWords.has(w));
 
-  const scored: Array<{ id: string; entry: ContentEntry; distance: number }> = [];
+  const scored: Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }> = [];
   for (const [id, entry] of Object.entries(index)) {
     if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
     const content = entry.c.toLowerCase();
@@ -116,7 +151,9 @@ async function semanticSearch(query: string, limit = 30, speakerFilter?: string 
       if (matches) score += matches.length;
     }
     if (score > 0) {
-      scored.push({ id, entry, distance: 1 - Math.min(1, score / 10) });
+      const rawDistance = 1 - Math.min(1, score / 10);
+      const rec = recencyWeight(entry.v);
+      scored.push({ id, entry, rawDistance, distance: rawDistance / rec });
     }
   }
   scored.sort((a, b) => a.distance - b.distance);
