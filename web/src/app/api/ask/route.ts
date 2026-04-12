@@ -475,13 +475,16 @@ Format:
       // DEFAULT: classify first, then either factual answer OR round-table
       userPrompt = `QUESTION: "${query}"
 
-═══ STEP 1: CLASSIFY THE QUESTION ═══
+═══ STEP 1: CLASSIFY THE QUESTION (silently — do NOT include this in your output) ═══
 
-Decide silently which type this is:
+Decide INTERNALLY which type this is. Do not write "CLASSIFICATION:" or any meta-commentary in your response. Just pick one and start writing the appropriate output directly.
+
 - **BIOGRAPHICAL FACT** — asks about a bestie's identity, party affiliation, current role, biography, or verifiable life facts. Examples: "Is Sacks a Republican?", "Who is Brad Gerstner?", "What's Chamath's background?", "Does Friedberg work at Google?"
 - **TOPICAL OPINION** — asks about their views, takes, predictions, or analysis of a subject. Examples: "What does Chamath think about tariffs?", "Are the besties bullish on AI?", "Will Bitcoin hit 200k?"
 
-═══ STEP 2: RESPOND BASED ON CLASSIFICATION ═══
+Your first characters should be either "**David" (or whichever bestie) for a factual answer, or "**JASON:**" for a dialogue. No preamble, no meta.
+
+═══ STEP 2: RESPOND ═══
 
 **IF BIOGRAPHICAL FACT:**
 Give a DIRECT ANSWER in 2-4 sentences from the GROUND-TRUTH FACTS section of your system prompt. No dialogue. No hedging. No "it's complicated." No "they say they're..." — just state the fact as it is. Then add a short context paragraph explaining how they arrived at their current position. Example for "Is Sacks a Republican?":
