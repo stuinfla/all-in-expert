@@ -7,11 +7,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { XMLParser } from 'fast-xml-parser';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const TSV = join(ROOT, 'data', 'episodes', 'all_video_ids.tsv');
-const RSS_META = join(ROOT, 'data', 'episodes', 'episodes_metadata.json');
+const RSS_FILE = join(ROOT, 'data', 'episodes', 'rss_feed.xml');
 const OUT_LOCAL = join(ROOT, 'data', 'kb', 'episode-dates.json');
 const OUT_WEB = join(ROOT, 'web', 'public', 'data', 'episode-dates.json');
 
@@ -32,10 +33,33 @@ function tokenOverlap(a, b) {
   return union > 0 ? overlap / union : 0;
 }
 
+function parseRssDate(dateStr) {
+  try {
+    return new Date(dateStr).toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+function loadFullRss() {
+  const xml = readFileSync(RSS_FILE, 'utf8');
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+  const parsed = parser.parse(xml);
+  const items = parsed.rss?.channel?.item || [];
+  return items
+    .map((item) => {
+      const title = item.title || '';
+      const pubDate = item.pubDate || '';
+      const date = parseRssDate(pubDate);
+      return { title, date };
+    })
+    .filter((e) => e.date && e.title);
+}
+
 function main() {
-  // Load RSS metadata (has title + date)
-  const rssEpisodes = JSON.parse(readFileSync(RSS_META, 'utf8'));
-  console.log(`Loaded ${rssEpisodes.length} RSS episodes`);
+  // Load FULL RSS feed (all episodes, not just April 2024+)
+  const rssEpisodes = loadFullRss();
+  console.log(`Loaded ${rssEpisodes.length} RSS episodes (full feed)`);
 
   // Load YouTube video IDs (has videoId + youtube_title)
   const tsv = readFileSync(TSV, 'utf8');
@@ -64,7 +88,7 @@ function main() {
         bestEpisode = rss;
       }
     }
-    if (bestScore >= 0.3 && bestEpisode) {
+    if (bestScore >= 0.2 && bestEpisode) {
       videoDates[yt.id] = bestEpisode.date;
       matched++;
     } else {
