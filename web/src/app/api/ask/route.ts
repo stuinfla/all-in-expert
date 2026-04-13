@@ -480,8 +480,12 @@ export async function POST(req: NextRequest) {
     // Build citation-enriched segment text for the LLM
     // Include episode date so Claude can apply the recency rule
     const epDates = getEpisodeDates();
+    // IMPORTANT: the LLM segment count and the user-visible citation count
+    // must be identical. Otherwise the LLM cites [11..15] but the frontend
+    // only renders 10 citations, orphaning refs. Unified at 12.
+    const SEGMENT_BUDGET = 12;
     const segmentText = results
-      .slice(0, 15)
+      .slice(0, SEGMENT_BUDGET)
       .map((r, i) => {
         const topics = r.entry.p.join(', ');
         const speakers = r.entry.m.length > 0 ? ` · voices: ${r.entry.m.join(', ')}` : '';
@@ -491,7 +495,7 @@ export async function POST(req: NextRequest) {
       .join('\n\n');
 
     // Structured citations for the response (frontend renders these separately)
-    const citations = results.slice(0, 10).map((r, i) => ({
+    const citations = results.slice(0, SEGMENT_BUDGET).map((r, i) => ({
       n: i + 1,
       time: r.entry.t,
       date: epDates[r.entry.v] || null,
@@ -589,6 +593,7 @@ The transcript segments are the ONLY source of truth. They come from 448 real ep
 3. If the retrieved segments don't cover a point, DON'T MAKE THE POINT. Say "I haven't dug into that specifically" in voice, or steer the dialogue to what the segments DO cover.
 4. Never fabricate statistics, dates, people, or events. If a number isn't in the segments, don't invent one.
 5. When multiple segments support a claim, cite the most recent: [4, 7] is fine; prefer the newer one first.
+6. Valid citation numbers are [1] through [${SEGMENT_BUDGET}] ONLY. The user sees exactly these ${SEGMENT_BUDGET} numbered citations — NEVER invent higher numbers like [13], [14], [15].
 
 **SEGMENT GAPS:** If the segments don't actually touch the user's topic, say so in voice ("I haven't dug into X yet, but on adjacent Y I've said…"). Don't fabricate.
 
@@ -600,29 +605,35 @@ ${speakerProfileText}`;
     let userPrompt: string;
 
     if (focus) {
-      // Single-bestie deep dive — voice-matched monologue, not dialogue
+      // Single-bestie deep dive — DIALOGUE with that bestie as the focal voice.
+      // Other besties serve as questioners / reactors, but ~60-70% of the
+      // substance comes from the focus speaker. This preserves the All-In
+      // dialogue format (voice accuracy) while spotlighting one perspective.
       userPrompt = `QUESTION: "${query}"
 
-Write in ${focus.name}'s voice — as if ${focus.short} is answering this question right now, pulling from what he's actually said on All-In.
+FOCUS SPEAKER: **${focus.name}** (${focus.short}) — ${focus.lens}
 
-Here are the retrieved transcript segments (ranked by relevance):
+Produce an All-In Podcast round-table DIALOGUE where ${focus.short} is the focal voice. The other besties (Jason as host, plus the 2 most-relevant others from Chamath/Sacks/Friedberg that aren't ${focus.short}) play supporting roles — asking, reacting, occasionally pushing back — but ${focus.short} delivers the substance.
+
+Here are the retrieved transcript segments (ranked by relevance — prioritize segments where ${focus.short} is in the voices list):
 
 ${segmentText}
 
-Write a 4-6 paragraph response as ${focus.short} would say it. Use his cadence, his signature phrases, his framing style.
+FORMAT:
+1. **JASON:** opens by putting the question to ${focus.short} directly (1-2 sentences)
+2. **${focus.short.toUpperCase()}:** the core answer in his voice, ~3-4 substantive turns total across the dialogue, each 2-4 sentences, each ending with [N] citation markers
+3. **[OTHER BESTIES]:** 2-3 turns total — a reactor/questioner/contrarian push. Can also end in [N] if they reference segment content.
+4. ${focus.short} gets the last substantive word before the summary sections.
+5. **## Where ${focus.short} lands** — 2-3 bullets of his core position (each with [N])
+6. **## Where the others push back** — 1-2 bullets of disagreement (with [N] if grounded)
+7. **Confidence:** HIGH/MEDIUM/LOW (LOW if the segments barely touched the question)
 
-**CITATION DISCIPLINE — SAME RULES AS DIALOGUE MODE, NO EXCEPTIONS:**
-- EVERY substantive claim (number, prediction, named event, concrete position) MUST end with a [N] marker pointing to the specific segment that supports it.
-- The segments are the ONLY permitted source of substance. If the segments don't cover the question, DON'T fabricate — say "I haven't dug into that specifically on the show" in his voice and pivot to what the segments DO contain about adjacent topics.
-- Do NOT invent statistics, dates, names, or quotes. If it isn't in a segment, it doesn't exist.
-- Short direct quotes from his segments are fine (double-quote them + [N]). Prefer paraphrase in his cadence for longer ideas.
-- Minimum: each paragraph must cite at least one segment. A paragraph with zero [N] markers is a bug.
-
-Do not write "Here is what ${focus.short} would say" or analyze him in the third person. Just write AS him, in first person, as a monologue. Imagine the user just asked him this on the show.
-
-After the monologue, add:
-- **## Where this sits in his thinking** (1 short paragraph connecting this take to his broader framework — cite segments where possible)
-- **Confidence: HIGH/MEDIUM/LOW** (one line — LOW if the segments barely touched the question)`;
+**CITATION DISCIPLINE — NON-NEGOTIABLE:**
+- EVERY substantive claim (number, prediction, named event, concrete position) MUST end with [N] pointing to the segment that supports it.
+- The ${SEGMENT_BUDGET} numbered segments above are the ONLY source of substance. Do NOT fabricate stats/dates/names/quotes.
+- If segments don't cover the question adequately, have ${focus.short} say so in voice ("I haven't dug into that specifically — but on the adjacent Y question, my view is…") and pivot to segment-grounded adjacent material. Don't invent policy positions.
+- Short direct quotes from his segments are fine (double-quote + [N]). Prefer paraphrase in his cadence for longer ideas.
+- Valid citations are [1] through [${SEGMENT_BUDGET}]. Never cite a higher number.`;
     } else if (isForecast) {
       // Forecast roundtable — same dialogue style but explicitly predictive
       userPrompt = `FORECASTING QUESTION: "${query}"
