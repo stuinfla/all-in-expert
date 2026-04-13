@@ -443,8 +443,38 @@ export async function POST(req: NextRequest) {
     // ─── Speculative parallel: pi-brain lookup || retrieval ────────
     // Run both concurrently. Pi-brain hit wins if it completes before
     // retrieval; otherwise we stick with retrieval and proceed to synthesis.
+    //
+    // When a speaker filter is active, we ALSO run an unfiltered search for
+    // the topic. If the speaker doesn't have strong segments on this exact
+    // topic in our corpus, the filtered search returns off-topic voice
+    // matches (e.g. "Sacks on crypto regulation" returns Sacks talking
+    // about rollups). Merging the two prevents fabrication by giving the
+    // synthesizer topic-grounded segments regardless of speaker.
     const piBrainPromise = cacheLookupPiBrain(cacheKey).catch(() => null);
-    const retrievalPromise = semanticSearch(query, 30, speaker || null);
+    const retrievalPromise = (async () => {
+      if (speaker) {
+        const [filtered, unfiltered] = await Promise.all([
+          semanticSearch(query, 20, speaker),
+          semanticSearch(query, 20, null),
+        ]);
+        // Interleave: alternate filtered and unfiltered, dedupe by id,
+        // preserve relative order. This gives the LLM both voice-matched
+        // Sacks quotes AND topic-relevant segments to paraphrase in his voice.
+        const seen = new Set<string>();
+        const merged: typeof filtered.results = [];
+        const maxLen = Math.max(filtered.results.length, unfiltered.results.length);
+        for (let i = 0; i < maxLen && merged.length < 30; i++) {
+          for (const r of [filtered.results[i], unfiltered.results[i]]) {
+            if (!r) continue;
+            if (seen.has(r.id)) continue;
+            seen.add(r.id);
+            merged.push(r);
+          }
+        }
+        return { results: merged, mode: filtered.mode };
+      }
+      return semanticSearch(query, 30, null);
+    })();
 
     // Wait for either pi-brain to resolve (hit or miss) OR retrieval to finish.
     // Whichever completes first wins. On pi-brain miss (null resolve), we still
@@ -615,7 +645,7 @@ FOCUS SPEAKER: **${focus.name}** (${focus.short}) — ${focus.lens}
 
 Produce an All-In Podcast round-table DIALOGUE where ${focus.short} is the focal voice. The other besties (Jason as host, plus the 2 most-relevant others from Chamath/Sacks/Friedberg that aren't ${focus.short}) play supporting roles — asking, reacting, occasionally pushing back — but ${focus.short} delivers the substance.
 
-Here are the retrieved transcript segments (ranked by relevance — prioritize segments where ${focus.short} is in the voices list):
+Here are the retrieved transcript segments (mix of ${focus.short}'s own segments AND general topic-relevant segments from all besties — use ${focus.short}'s own segments for direct-quote material and treat the others as topic context ${focus.short} would react to):
 
 ${segmentText}
 
