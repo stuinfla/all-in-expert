@@ -582,7 +582,13 @@ The transcript segments are the ONLY source of truth. They come from 448 real ep
 - Prefer PARAPHRASE in their voice over long verbatim reproduction. A 30-word monologue in Chamath's cadence that captures his actual point is better than a 100-word transcript copy-paste.
 - SHORT direct quotes (a memorable phrase or a single sentence) are fine — set them off with double quotes, e.g. Chamath says "look, the reality is this is a trillion-five market cap" [3].
 - Do NOT reproduce any segment wholesale. Use its meaning and voice, not its literal sentences.
-- Always attach [N] citation markers where the segment supports the claim.
+
+**CITATION DISCIPLINE — NON-NEGOTIABLE:**
+1. EVERY substantive claim (number, position, prediction, event) MUST end with a [N] marker pointing to the segment that directly supports it. No free-floating assertions.
+2. Do NOT cite a segment unless its text actually supports the specific claim. Citation [3] after a sentence means "segment 3 contains words that say this." Loose thematic connection is not enough.
+3. If the retrieved segments don't cover a point, DON'T MAKE THE POINT. Say "I haven't dug into that specifically" in voice, or steer the dialogue to what the segments DO cover.
+4. Never fabricate statistics, dates, people, or events. If a number isn't in the segments, don't invent one.
+5. When multiple segments support a claim, cite the most recent: [4, 7] is fine; prefer the newer one first.
 
 **SEGMENT GAPS:** If the segments don't actually touch the user's topic, say so in voice ("I haven't dug into X yet, but on adjacent Y I've said…"). Don't fabricate.
 
@@ -603,13 +609,20 @@ Here are the retrieved transcript segments (ranked by relevance):
 
 ${segmentText}
 
-Write a 4-6 paragraph response as ${focus.short} would say it. Use his cadence, his signature phrases, his framing style. Work his actual quotes from the segments into the response naturally — when a segment contains a direct quote from him, use it verbatim or near-verbatim and add [N] at the end of that sentence.
+Write a 4-6 paragraph response as ${focus.short} would say it. Use his cadence, his signature phrases, his framing style.
+
+**CITATION DISCIPLINE — SAME RULES AS DIALOGUE MODE, NO EXCEPTIONS:**
+- EVERY substantive claim (number, prediction, named event, concrete position) MUST end with a [N] marker pointing to the specific segment that supports it.
+- The segments are the ONLY permitted source of substance. If the segments don't cover the question, DON'T fabricate — say "I haven't dug into that specifically on the show" in his voice and pivot to what the segments DO contain about adjacent topics.
+- Do NOT invent statistics, dates, names, or quotes. If it isn't in a segment, it doesn't exist.
+- Short direct quotes from his segments are fine (double-quote them + [N]). Prefer paraphrase in his cadence for longer ideas.
+- Minimum: each paragraph must cite at least one segment. A paragraph with zero [N] markers is a bug.
 
 Do not write "Here is what ${focus.short} would say" or analyze him in the third person. Just write AS him, in first person, as a monologue. Imagine the user just asked him this on the show.
 
 After the monologue, add:
-- **## Where this sits in his thinking** (1 short paragraph connecting this take to his broader framework)
-- **Confidence: HIGH/MEDIUM/LOW** (one line)`;
+- **## Where this sits in his thinking** (1 short paragraph connecting this take to his broader framework — cite segments where possible)
+- **Confidence: HIGH/MEDIUM/LOW** (one line — LOW if the segments barely touched the question)`;
     } else if (isForecast) {
       // Forecast roundtable — same dialogue style but explicitly predictive
       userPrompt = `FORECASTING QUESTION: "${query}"
