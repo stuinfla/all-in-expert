@@ -724,9 +724,14 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
     }
 
     const client = new Anthropic({ apiKey });
+    // Speaker-focused queries get Sonnet — tighter citation discipline is
+    // worth the 15× cost on low-volume, high-scrutiny single-bestie queries.
+    // Dialogue/forecast paths stay on Haiku for speed + cost.
+    const model = focus ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model,
       max_tokens: 1800,
+      temperature: 0.3,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
