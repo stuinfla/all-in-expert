@@ -241,6 +241,12 @@ async function semanticSearchBin(query: string, limit: number, speakerFilter?: s
 /**
  * RVF (HNSW) semantic search — try first; falls back to bin+cosine if it
  * throws (native module compat, file missing, etc). Returns null on failure.
+ *
+ * NOTE on ID translation: RVF v0.2 assigns internal integer labels during
+ * ingest and returns those labels (not the original string IDs) on query.
+ * Our build-knowledge-base.mjs ingests entries in the same order as
+ * embeddings-order.json, so RVF label N maps to embeddings-order[N-1].
+ * We translate before hydrating from content-index.
  */
 async function semanticSearchRvf(
   query: string,
@@ -255,23 +261,42 @@ async function semanticSearchRvf(
   }
   try {
     const index = await getContentIndex();
+    const embeddings = getEmbeddingsBin();
+    const order = embeddings?.order;
+    if (!order || order.length === 0) {
+      console.log('[semanticSearchRvf] embeddings-order not available for ID translation');
+      return null;
+    }
     const queryVec = await embedQuery(query);
     // Over-fetch so we have room to filter by speaker + recency-rerank
     const rvfResults = await db.query(queryVec, limit * 3, { efSearch: 250 });
     const hydrated: Array<{
       id: string; entry: ContentEntry; distance: number; rawDistance: number;
     }> = [];
+    let resolved = 0;
     for (const r of rvfResults) {
-      const entry = index[r.id];
+      // Translate RVF integer label → string content-index key via embeddings-order
+      const label = parseInt(String(r.id), 10);
+      if (!Number.isFinite(label) || label < 1 || label > order.length) continue;
+      const contentKey = order[label - 1];
+      const entry = index[contentKey];
       if (!entry) continue;
+      resolved++;
       if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
       const rec = recencyWeight(entry.v);
-      hydrated.push({ id: r.id, entry, rawDistance: r.distance, distance: r.distance / rec });
+      hydrated.push({
+        id: contentKey,
+        entry,
+        rawDistance: r.distance,
+        distance: r.distance / rec,
+      });
     }
     hydrated.sort((a, b) => a.distance - b.distance);
     const top = hydrated.slice(0, limit);
-    console.log(`[semanticSearchRvf] HNSW returned ${rvfResults.length} → ${top.length} after filter in ${Date.now() - t0}ms`);
-    return top;
+    console.log(
+      `[semanticSearchRvf] HNSW ${rvfResults.length} raw → ${resolved} resolved → ${top.length} after speaker filter in ${Date.now() - t0}ms`
+    );
+    return top.length > 0 ? top : null;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.log(`[semanticSearchRvf] FAILED after ${Date.now() - t0}ms: ${msg}`);
