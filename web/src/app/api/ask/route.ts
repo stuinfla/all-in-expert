@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { cacheLookupMem, cacheLookupPiBrain, cacheStore, CachedResponse } from '@/lib/pi-brain';
+import { rerank } from '@/lib/rerank';
+import { validateCitations } from '@/lib/validate-citations';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -496,9 +498,9 @@ export async function POST(req: NextRequest) {
 
     // Either retrieval won the race, or pi-brain returned null. Ensure
     // retrieval's result is awaited (it may or may not be done yet).
-    const { results, mode: searchMode } = await retrievalPromise;
+    const { results: rawResults, mode: searchMode } = await retrievalPromise;
 
-    if (results.length === 0) {
+    if (rawResults.length === 0) {
       return NextResponse.json({
         report: 'No relevant segments found in the archive for this query. Try rephrasing or asking about a different topic.',
         segmentsFound: 0,
@@ -507,13 +509,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ─── Cross-encoder rerank (Haiku as relevance scorer) ──────────
+    // Cosine similarity is approximate; an LLM read of "does this segment
+    // answer this query?" produces materially better top-K. Adds ~500ms,
+    // saves multiple seconds downstream by giving synthesis better material.
+    const SEGMENT_BUDGET = 12;
+    const results = await rerank(query, rawResults, SEGMENT_BUDGET, apiKey);
+
     // Build citation-enriched segment text for the LLM
     // Include episode date so Claude can apply the recency rule
     const epDates = getEpisodeDates();
-    // IMPORTANT: the LLM segment count and the user-visible citation count
-    // must be identical. Otherwise the LLM cites [11..15] but the frontend
-    // only renders 10 citations, orphaning refs. Unified at 12.
-    const SEGMENT_BUDGET = 12;
     const segmentText = results
       .slice(0, SEGMENT_BUDGET)
       .map((r, i) => {
@@ -736,11 +741,24 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
       messages: [{ role: 'user', content: userPrompt }],
     });
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
+
+    // ─── Post-synthesis citation validator ─────────────────────────
+    // Verifies each [N] marker actually points to a segment that supports
+    // the claim. Strips markers with verdict=NO; flags PARTIAL in metadata.
+    // Adds ~1-2s on cache-miss; cached responses are pre-validated.
+    const validation = await validateCitations(rawText, citations, apiKey);
+
+    // Annotate citations with verdicts so the frontend can render warnings
+    const verdictMap = new Map(validation.verdicts.map((v) => [v.n, v.verdict]));
+    const annotatedCitations = citations.map((c) => ({
+      ...c,
+      verdict: verdictMap.get(c.n) || 'UNCHECKED',
+    }));
 
     const payload: CachedResponse = {
-      report: text,
-      citations,
+      report: validation.cleanedReport,
+      citations: annotatedCitations,
       segmentsFound: results.length,
       totalEntries: Object.keys(await getContentIndex()).length,
       searchMode,
@@ -753,7 +771,12 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
     return NextResponse.json({
       ...payload,
       cacheHit: false,
+      cacheSource: null,
       latencyMs: Date.now() - reqStart,
+      validation: {
+        checked: validation.totalChecked,
+        unsupported: validation.unsupportedCount,
+      },
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
