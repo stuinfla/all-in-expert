@@ -39,11 +39,19 @@ export interface CitationVerdict {
   reason?: string;
 }
 
+export interface FailedClaim {
+  claim: string;
+  n: number;
+  verdict: 'NO' | 'PARTIAL';
+}
+
 export interface ValidationResult {
   cleanedReport: string;
   verdicts: CitationVerdict[];
   unsupportedCount: number;
   totalChecked: number;
+  /** Specific (claim, citation-n) pairs that failed — used by self-critique rewrite */
+  failedClaims: FailedClaim[];
 }
 
 const VALIDATE_TIMEOUT_MS = 8000;
@@ -91,12 +99,12 @@ export async function validateCitations(
   anthropicKey?: string
 ): Promise<ValidationResult> {
   if (!anthropicKey || !report || citations.length === 0) {
-    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0 };
+    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0, failedClaims: [] };
   }
 
   const claims = extractClaims(report);
   if (claims.length === 0) {
-    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0 };
+    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0, failedClaims: [] };
   }
 
   // Build the (claim, segment) pairs. Many claims cite multiple segments;
@@ -115,7 +123,7 @@ export async function validateCitations(
   }
 
   if (pairs.length === 0) {
-    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0 };
+    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0, failedClaims: [] };
   }
 
   const prompt = `You are a strict citation verifier. For each (CLAIM, SEGMENT) pair, judge whether the SEGMENT TEXT directly supports the specific factual content of the CLAIM.
@@ -185,6 +193,7 @@ Output ONLY JSON: {"v":[{"pid":<int>,"verdict":"YES|PARTIAL|NO"},...]} with exac
     const verdicts: CitationVerdict[] = [];
     let cleanedReport = report;
     let unsupported = 0;
+    const noCitations = new Set<number>();
     for (const [n, c] of perCitation.entries()) {
       let v: CitationVerdict['verdict'];
       if (c.no > 0 && c.yes === 0) v = 'NO';
@@ -193,7 +202,17 @@ Output ONLY JSON: {"v":[{"pid":<int>,"verdict":"YES|PARTIAL|NO"},...]} with exac
       verdicts.push({ n, verdict: v });
       if (v === 'NO') {
         unsupported++;
+        noCitations.add(n);
         cleanedReport = stripCitation(cleanedReport, n);
+      }
+    }
+
+    // Capture the specific claims that cited NO-verdict segments so the
+    // self-critique rewrite loop can tell the model what went wrong.
+    const failedClaims: FailedClaim[] = [];
+    for (const p of pairs) {
+      if (noCitations.has(p.n)) {
+        failedClaims.push({ claim: p.claim, n: p.n, verdict: 'NO' });
       }
     }
 
@@ -208,11 +227,12 @@ Output ONLY JSON: {"v":[{"pid":<int>,"verdict":"YES|PARTIAL|NO"},...]} with exac
       verdicts,
       unsupportedCount: unsupported,
       totalChecked: verdicts.length,
+      failedClaims,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.log(`[validate] failed after ${Date.now() - t0}ms: ${msg}`);
-    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0 };
+    return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0, failedClaims: [] };
   } finally {
     clearTimeout(timer);
   }

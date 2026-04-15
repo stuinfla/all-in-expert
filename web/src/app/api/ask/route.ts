@@ -239,33 +239,81 @@ async function semanticSearchBin(query: string, limit: number, speakerFilter?: s
 }
 
 /**
- * Semantic search: embed query, search RVF (HNSW), then hydrate with content.
- * Falls back to keyword search if RVF unavailable.
+ * RVF (HNSW) semantic search — try first; falls back to bin+cosine if it
+ * throws (native module compat, file missing, etc). Returns null on failure.
+ */
+async function semanticSearchRvf(
+  query: string,
+  limit: number,
+  speakerFilter?: string | null
+) {
+  const t0 = Date.now();
+  const db = await getRvf();
+  if (!db) {
+    console.log('[semanticSearchRvf] RVF not available');
+    return null;
+  }
+  try {
+    const index = await getContentIndex();
+    const queryVec = await embedQuery(query);
+    // Over-fetch so we have room to filter by speaker + recency-rerank
+    const rvfResults = await db.query(queryVec, limit * 3, { efSearch: 250 });
+    const hydrated: Array<{
+      id: string; entry: ContentEntry; distance: number; rawDistance: number;
+    }> = [];
+    for (const r of rvfResults) {
+      const entry = index[r.id];
+      if (!entry) continue;
+      if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
+      const rec = recencyWeight(entry.v);
+      hydrated.push({ id: r.id, entry, rawDistance: r.distance, distance: r.distance / rec });
+    }
+    hydrated.sort((a, b) => a.distance - b.distance);
+    const top = hydrated.slice(0, limit);
+    console.log(`[semanticSearchRvf] HNSW returned ${rvfResults.length} → ${top.length} after filter in ${Date.now() - t0}ms`);
+    return top;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[semanticSearchRvf] FAILED after ${Date.now() - t0}ms: ${msg}`);
+    return null;
+  }
+}
+
+/**
+ * Semantic search: try RVF (HNSW) first, fall back to bin+cosine, then TF-IDF.
+ * RVF-first per CLAUDE.md v5.0.0 rule 1; bin path kept as a defensive fallback
+ * in case RVF native module ever fails in a Vercel runtime.
  */
 async function semanticSearch(query: string, limit = 30, speakerFilter?: string | null) {
   const index = await getContentIndex();
 
-  // Try the binary-based semantic search first (works in Vercel serverless)
+  // Tier 1: RVF HNSW
+  const rvfResults = await semanticSearchRvf(query, limit, speakerFilter);
+  if (rvfResults && rvfResults.length > 0) {
+    return { results: rvfResults, mode: 'semantic' as const };
+  }
+
+  // Tier 2: bin + cosine (legacy fallback; works if RVF native module fails)
   const binResults = await semanticSearchBin(query, limit, speakerFilter);
   if (binResults && binResults.length > 0) {
     return { results: binResults, mode: 'semantic' as const };
   }
 
-  const db = await getRvf();
+  // Tier 3: dead branch — left for compatibility with the original structure,
+  // getRvf is already covered by tier 1 above, this block never runs now.
+  const db = null as Awaited<ReturnType<typeof getRvf>> | null;
   if (db) {
     try {
       const queryVec = await embedQuery(query);
-      // Over-fetch so we have room to rerank by recency
-      const rvfResults = await db.query(queryVec, limit * 3, { efSearch: 250 });
+      const rvfResultsLegacy = await db.query(queryVec, limit * 3, { efSearch: 250 });
       const hydrated: Array<{
         id: string; entry: ContentEntry; distance: number; rawDistance: number;
       }> = [];
-      for (const r of rvfResults) {
+      for (const r of rvfResultsLegacy) {
         const entry = index[r.id];
         if (!entry) continue;
         if (speakerFilter && !entry.m.includes(speakerFilter)) continue;
         const rec = recencyWeight(entry.v);
-        // distance lower = better; divide by recency so recent = better
         hydrated.push({ id: r.id, entry, rawDistance: r.distance, distance: r.distance / rec });
       }
       hydrated.sort((a, b) => a.distance - b.distance);
