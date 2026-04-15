@@ -343,6 +343,18 @@ export default function Home() {
     chapterCount?: number;
     latestEpisode?: { title: string; date: string };
   } | null>(null);
+  const [engagement, setEngagement] = useState<{
+    visitors: number;
+    ratings: { count: number; avg: number };
+  } | null>(null);
+  const [budget, setBudget] = useState<{
+    count: number;
+    limit: number;
+    remaining: number;
+  } | null>(null);
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [ratingHover, setRatingHover] = useState<number | null>(null);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -367,6 +379,61 @@ export default function Home() {
       .then((d) => setFreshness(d.freshness))
       .catch(() => {});
   }, []);
+
+  // Engagement: record a visit once per browser session + load stats
+  useEffect(() => {
+    const loadStats = () =>
+      fetch("/api/stats")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.engagement) setEngagement(d.engagement);
+          if (d?.budget) setBudget(d.budget);
+        })
+        .catch(() => {});
+
+    const SESSION_KEY = "aie_visit_recorded";
+    const RATING_KEY = "aie_user_rating";
+    try {
+      if (!sessionStorage.getItem(SESSION_KEY)) {
+        sessionStorage.setItem(SESSION_KEY, "1");
+        fetch("/api/visit", { method: "POST" })
+          .then(() => loadStats())
+          .catch(() => loadStats());
+      } else {
+        loadStats();
+      }
+      const prior = localStorage.getItem(RATING_KEY);
+      if (prior) {
+        setUserRating(parseInt(prior, 10));
+        setRatingSubmitted(true);
+      }
+    } catch {
+      loadStats();
+    }
+  }, []);
+
+  async function submitRating(stars: number) {
+    if (ratingSubmitted) return;
+    setUserRating(stars);
+    try {
+      const res = await fetch("/api/rate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stars }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEngagement((prev) => ({
+          visitors: prev?.visitors ?? 0,
+          ratings: { count: data.count, avg: data.avg },
+        }));
+        try { localStorage.setItem("aie_user_rating", String(stars)); } catch {}
+        setRatingSubmitted(true);
+      }
+    } catch {
+      // no-op — user can retry
+    }
+  }
 
   // Auto-resize textarea
   useEffect(() => {
@@ -406,7 +473,17 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Something went wrong");
+        if (res.status === 429) {
+          setError(
+            data.message ||
+              `Daily research budget reached (${data.limit || 25} new syntheses). Resets at UTC midnight. Try a question that's been asked before — cached answers are unlimited.`
+          );
+          if (typeof data.limit === "number") {
+            setBudget({ count: data.count ?? data.limit, limit: data.limit, remaining: 0 });
+          }
+        } else {
+          setError(data.error || "Something went wrong");
+        }
         return;
       }
 
@@ -417,6 +494,7 @@ export default function Home() {
         totalEntries: data.totalEntries,
         searchMode: data.searchMode,
       });
+      if (data.budget) setBudget(data.budget);
     } catch {
       setError("Unable to reach the archive.");
     } finally {
@@ -839,6 +917,52 @@ export default function Home() {
               </div>
             )}
 
+            {/* ─── Rating widget ─────────────────────────────── */}
+            <div className="mt-8 border border-[var(--border)] bg-[var(--bg-card)] p-5 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div className="eyebrow">§ Rate this answer</div>
+                <div className="font-display italic text-base mt-1 text-[var(--ink)]">
+                  {ratingSubmitted
+                    ? `Thank you — you rated this ${userRating}/5`
+                    : "How useful was this roundtable?"}
+                </div>
+              </div>
+              <div
+                className="flex items-center gap-1"
+                onMouseLeave={() => setRatingHover(null)}
+              >
+                {[1, 2, 3, 4, 5].map((n) => {
+                  const active = (ratingHover ?? userRating ?? 0) >= n;
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={ratingSubmitted}
+                      aria-label={`Rate ${n} out of 5`}
+                      onMouseEnter={() => !ratingSubmitted && setRatingHover(n)}
+                      onClick={() => submitRating(n)}
+                      className={`text-3xl leading-none transition-transform ${
+                        ratingSubmitted
+                          ? "cursor-default"
+                          : "hover:scale-110 cursor-pointer"
+                      }`}
+                      style={{
+                        color: active ? "var(--gold-bright)" : "var(--border)",
+                      }}
+                    >
+                      ★
+                    </button>
+                  );
+                })}
+                {engagement && engagement.ratings.count > 0 && (
+                  <span className="ml-3 font-mono text-[10px] tracking-wider uppercase text-[var(--ink-mute)]">
+                    {engagement.ratings.avg.toFixed(1)}/5 · {engagement.ratings.count} rating
+                    {engagement.ratings.count === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
+            </div>
+
             {/* ─── Citations ─────────────────────────────────── */}
             {citations.length > 0 && (
               <div className="mt-12">
@@ -1073,6 +1197,38 @@ export default function Home() {
               .
             </div>
           </div>
+
+          {(engagement || budget) && (
+            <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-center gap-4 font-mono text-[10px] text-[var(--ink-mute)] tracking-wider uppercase flex-wrap">
+              {engagement && (
+                <span>
+                  <span className="text-[var(--gold)]">◉</span>{" "}
+                  {engagement.visitors.toLocaleString()} visitor
+                  {engagement.visitors === 1 ? "" : "s"}
+                </span>
+              )}
+              {engagement && engagement.ratings.count > 0 && (
+                <>
+                  <span className="text-[var(--ink-faint)]">·</span>
+                  <span>
+                    <span className="text-[var(--gold-bright)]">★</span>{" "}
+                    {engagement.ratings.avg.toFixed(1)}/5 from{" "}
+                    {engagement.ratings.count} rating
+                    {engagement.ratings.count === 1 ? "" : "s"}
+                  </span>
+                </>
+              )}
+              {budget && (
+                <>
+                  <span className="text-[var(--ink-faint)]">·</span>
+                  <span>
+                    <span className="text-[var(--gold)]">◆</span>{" "}
+                    {budget.remaining}/{budget.limit} queries left today
+                  </span>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-between font-mono text-[10px] text-[var(--ink-faint)] tracking-widest uppercase flex-wrap gap-2">
             <div>Ask the All-In Experts · Vol. I · MMXXVI</div>

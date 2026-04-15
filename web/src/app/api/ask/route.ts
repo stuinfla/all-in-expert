@@ -6,6 +6,7 @@ import { join } from 'path';
 import { cacheLookupMem, cacheLookupPiBrain, cacheStore, CachedResponse } from '@/lib/pi-brain';
 import { rerank } from '@/lib/rerank';
 import { validateCitations } from '@/lib/validate-citations';
+import { checkRateLimit, recordCall } from '@/lib/rate-limit';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -508,6 +509,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── Tier 1: in-memory cache (sync, ~1ms) ──────────────────────
+    // Cache hits are free — they don't invoke Claude and don't count
+    // against the daily rate limit.
     const cacheKey = { query, speaker: speaker || null, mode: mode || null };
     const memHit = cacheLookupMem(cacheKey);
     if (memHit) {
@@ -517,6 +520,25 @@ export async function POST(req: NextRequest) {
         cacheSource: 'mem',
         latencyMs: Date.now() - reqStart,
       });
+    }
+
+    // ─── Rate limit check (soft global 25/day, resets UTC midnight) ─
+    // Only new syntheses count; cached responses are free. If the daily
+    // budget is exhausted, return 429 with a user-friendly message.
+    const rl = await checkRateLimit();
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Daily query limit reached',
+          message: `This research tool is running on a budget-capped demo (${rl.limit} new synthesis calls per day). Come back after ${new Date(rl.resetsAt).toUTCString()}, or try a question that's been asked before (cache hits are free).`,
+          dayKey: rl.dayKey,
+          count: rl.count,
+          limit: rl.limit,
+          resetsAt: rl.resetsAt,
+          suspended: true,
+        },
+        { status: 429 }
+      );
     }
 
     // ─── Speculative parallel: pi-brain lookup || retrieval ────────
@@ -841,6 +863,9 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
       searchMode,
     };
 
+    // This was a real Claude-powered synthesis — consume 1 from the budget.
+    const rlAfter = recordCall();
+
     // Write-through to pi-brain for future cache hits. Runs AFTER the response
     // is sent so the user doesn't pay for network round-trip on a miss.
     after(() => cacheStore(cacheKey, payload));
@@ -853,6 +878,12 @@ SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descript
       validation: {
         checked: validation.totalChecked,
         unsupported: validation.unsupportedCount,
+      },
+      budget: {
+        count: rlAfter.count,
+        limit: rlAfter.limit,
+        remaining: rlAfter.remaining,
+        resetsAt: rlAfter.resetsAt,
       },
     });
   } catch (err: unknown) {
