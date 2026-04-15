@@ -312,16 +312,20 @@ async function semanticSearchRvf(
 async function semanticSearch(query: string, limit = 30, speakerFilter?: string | null) {
   const index = await getContentIndex();
 
-  // Tier 1: RVF HNSW
-  const rvfResults = await semanticSearchRvf(query, limit, speakerFilter);
-  if (rvfResults && rvfResults.length > 0) {
-    return { results: rvfResults, mode: 'semantic' as const };
-  }
-
-  // Tier 2: bin + cosine (legacy fallback; works if RVF native module fails)
+  // NOTE (2026-04-14): RVF swap was attempted and reverted. RVF contains
+  // xenova-era embeddings that don't match the OpenAI query embedding space,
+  // so HNSW hits are semantically off (20Q avg dropped 83.9 → 62.0). Bin
+  // file was rebuilt with build-embeddings-openai.mjs and is the consistent
+  // space. Keep bin primary until RVF is rebuilt from the same OpenAI vectors.
   const binResults = await semanticSearchBin(query, limit, speakerFilter);
   if (binResults && binResults.length > 0) {
     return { results: binResults, mode: 'semantic' as const };
+  }
+
+  // Defensive RVF fallback (rarely wins now — but kept in case bin fails).
+  const rvfResults = await semanticSearchRvf(query, limit, speakerFilter);
+  if (rvfResults && rvfResults.length > 0) {
+    return { results: rvfResults, mode: 'semantic' as const };
   }
 
   // Tier 3: dead branch — left for compatibility with the original structure,
