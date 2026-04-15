@@ -631,23 +631,55 @@ export default function Home() {
 
           {/* Core besties — 5 columns: ALL + 4 */}
           <div className="grid grid-cols-5 gap-3 sm:gap-4">
-            {/* ALL card */}
+            {/* ALL card — All-In Podcast logo */}
             <button
               onClick={() => setSpeaker(null)}
-              className={`group relative p-3 sm:p-5 border text-left transition-all duration-300 ${
-                !speaker
-                  ? "border-[var(--gold)] bg-[var(--gold-soft)]"
-                  : "border-[var(--border)] hover:border-[var(--border-strong)] bg-[var(--bg-card)]"
-              }`}
+              className="group relative border text-left transition-all duration-300 overflow-hidden"
+              style={{
+                borderColor: !speaker ? "var(--gold)" : "var(--border)",
+                background: "var(--bg-card)",
+              }}
+              aria-label="Ask all four besties (The Council)"
             >
-              <div className="font-display text-3xl sm:text-5xl leading-none text-[var(--gold-bright)]">
-                ∴
-              </div>
-              <div className="mt-2 sm:mt-4 font-mono text-[10px] tracking-widest uppercase text-[var(--gold)]">
-                The Council
-              </div>
-              <div className="mt-0.5 text-[11px] sm:text-xs text-[var(--ink-dim)] leading-tight hidden sm:block">
-                All four
+              {/* All-In logo backdrop */}
+              <img
+                src="/icon-512.png"
+                alt=""
+                className="absolute inset-0 w-full h-full object-contain p-3 sm:p-5 opacity-95 group-hover:opacity-100 transition-opacity duration-500"
+                loading="eager"
+              />
+
+              {/* Gold tint overlay */}
+              <div
+                className="absolute inset-0 mix-blend-multiply opacity-20 group-hover:opacity-10 transition-opacity duration-500 pointer-events-none"
+                style={{
+                  background:
+                    "linear-gradient(180deg, transparent 30%, var(--gold) 130%)",
+                }}
+              />
+
+              {/* Bottom shadow for text readability */}
+              <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none" />
+
+              {/* Selection ring */}
+              {!speaker && (
+                <div
+                  className="absolute inset-0 border-2 pointer-events-none"
+                  style={{ borderColor: "var(--gold)" }}
+                />
+              )}
+
+              {/* Foreground content — matches bestie card layout */}
+              <div className="relative p-3 sm:p-4 min-h-[140px] sm:min-h-[200px] flex flex-col justify-end">
+                <div
+                  className="mt-2 font-mono text-[10px] tracking-widest uppercase font-semibold"
+                  style={{ color: !speaker ? "var(--gold)" : "#fff" }}
+                >
+                  The Council
+                </div>
+                <div className="mt-0.5 text-[11px] sm:text-xs text-[#e5e5e5] leading-tight">
+                  All four
+                </div>
               </div>
             </button>
 
