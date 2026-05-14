@@ -21,6 +21,12 @@
  * sentences). We only fix the misleading citation attribution. If too many
  * NOs (>30%), we mark the whole response as low-confidence in the citations
  * metadata so the frontend can show a "weak grounding" badge if desired.
+ *
+ * Additionally exports verifyClaimsAgainstCitations and rewriteToHedge for
+ * the post-generation hallucination gate (see route.ts). These detect specific
+ * factual claims (numbers, legislation, dollar amounts, percentages, named
+ * entities) that have no grounding in the citation excerpts, then rewrite them
+ * to softer hedges or remove them entirely.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -55,6 +61,8 @@ export interface ValidationResult {
 }
 
 const VALIDATE_TIMEOUT_MS = 8000;
+const VERIFY_TIMEOUT_MS = 10000;
+const REWRITE_TIMEOUT_MS = 10000;
 
 /**
  * Find each (sentence-with-citation, citation-numbers) pair in the report.
@@ -233,6 +241,194 @@ Output ONLY JSON: {"v":[{"pid":<int>,"verdict":"YES|PARTIAL|NO"},...]} with exac
     const msg = err instanceof Error ? err.message : String(err);
     console.log(`[validate] failed after ${Date.now() - t0}ms: ${msg}`);
     return { cleanedReport: report, verdicts: [], unsupportedCount: 0, totalChecked: 0, failedClaims: [] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── Hallucination gate: verifyClaimsAgainstCitations ───────────────────────
+//
+// Extracts every specific factual claim from the draft (numbers, percentages,
+// dollar amounts, dates, legislation names, agency names, named studies, named
+// court cases, specific titles) and for each one marks it:
+//   GROUNDED   — appears verbatim or near-verbatim in at least one citation
+//   INFERRED   — reasonable paraphrase of citation content
+//   UNGROUNDED — does not appear in any citation
+//
+// Uses Claude Haiku 4.5 for speed and cost.
+
+export interface ClaimVerdict {
+  text: string;
+  status: 'GROUNDED' | 'INFERRED' | 'UNGROUNDED';
+  citation_n: number | null;
+}
+
+export interface ClaimVerificationResult {
+  claims: ClaimVerdict[];
+  claimsTotal: number;
+  claimsGrounded: number;
+  claimsInferred: number;
+  claimsUngrounded: number;
+  verificationMs: number;
+}
+
+/** Truncate a citation quote to 280 chars for the verifier context window. */
+function truncateForVerifier(text: string): string {
+  if (text.length <= 280) return text;
+  return text.slice(0, 277) + '...';
+}
+
+export async function verifyClaimsAgainstCitations(
+  draftReport: string,
+  citations: Citation[],
+  query: string,
+  anthropicKey?: string
+): Promise<ClaimVerificationResult> {
+  const t0 = Date.now();
+  const empty: ClaimVerificationResult = {
+    claims: [],
+    claimsTotal: 0,
+    claimsGrounded: 0,
+    claimsInferred: 0,
+    claimsUngrounded: 0,
+    verificationMs: 0,
+  };
+
+  if (!anthropicKey || !draftReport || citations.length === 0) return empty;
+
+  const citationBlock = citations
+    .slice(0, 12)
+    .map((c) => `[${c.n}] ${truncateForVerifier(String(c.quote || ''))}`)
+    .join('\n');
+
+  const systemPrompt = `You are a fact-verification gate. The user received a synthesized roundtable answer drafted from N citation excerpts. Your job: extract every specific factual claim from the draft (numbers, percentages, dollar amounts, dates, legislation names, agency names, named studies, named court cases, specific titles), then for EACH claim mark it:
+- GROUNDED: claim appears verbatim or near-verbatim in at least one citation excerpt
+- INFERRED: claim is a reasonable paraphrase of citation content
+- UNGROUNDED: claim does not appear in any citation
+
+Output JSON ONLY: { "claims": [{ "text": "...", "status": "GROUNDED|INFERRED|UNGROUNDED", "citation_n": <int or null> }, ...] }
+No prose, no code fences, no explanation. Only specific factual claims (numbers, names, legislation, percentages, dollar amounts, dates, titles). Do NOT extract vague opinions or general statements.`;
+
+  const userMsg = `QUERY: ${query}
+
+CITATION EXCERPTS:
+${citationBlock}
+
+DRAFT REPORT:
+${draftReport.slice(0, 3000)}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
+
+  try {
+    const client = new Anthropic({ apiKey: anthropicKey });
+    const res = await client.messages.create(
+      {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1200,
+        temperature: 0,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMsg }],
+      },
+      { signal: controller.signal }
+    );
+
+    const text = res.content[0]?.type === 'text' ? res.content[0].text : '';
+    const cleaned = text.replace(/```(?:json)?/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    const rawClaims: unknown[] = Array.isArray(parsed.claims) ? parsed.claims : [];
+
+    const claims: ClaimVerdict[] = rawClaims
+      .filter(
+        (c): c is { text: string; status: string; citation_n: number | null } =>
+          typeof c === 'object' && c !== null && 'text' in c && 'status' in c
+      )
+      .map((c) => ({
+        text: String(c.text).slice(0, 300),
+        status: (['GROUNDED', 'INFERRED', 'UNGROUNDED'].includes(String(c.status).toUpperCase())
+          ? String(c.status).toUpperCase()
+          : 'UNGROUNDED') as ClaimVerdict['status'],
+        citation_n: typeof c.citation_n === 'number' ? c.citation_n : null,
+      }));
+
+    const claimsGrounded = claims.filter((c) => c.status === 'GROUNDED').length;
+    const claimsInferred = claims.filter((c) => c.status === 'INFERRED').length;
+    const claimsUngrounded = claims.filter((c) => c.status === 'UNGROUNDED').length;
+    const verificationMs = Date.now() - t0;
+
+    console.log(
+      `[verify-claims] query="${query.slice(0, 60)}" total=${claims.length} grounded=${claimsGrounded} inferred=${claimsInferred} ungrounded=${claimsUngrounded} ms=${verificationMs}`
+    );
+
+    return {
+      claims,
+      claimsTotal: claims.length,
+      claimsGrounded,
+      claimsInferred,
+      claimsUngrounded,
+      verificationMs,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[verify-claims] failed after ${Date.now() - t0}ms: ${msg}`);
+    return empty;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── Hallucination gate: rewriteToHedge ─────────────────────────────────────
+//
+// Takes the draft report and a list of UNGROUNDED claim strings, then rewrites
+// the offending sentences to remove or soften the unsupported specifics while
+// preserving the overall voice and structure. Uses Claude Haiku 4.5.
+
+export async function rewriteToHedge(
+  draftReport: string,
+  ungroundedClaims: string[],
+  anthropicKey?: string
+): Promise<string> {
+  if (!anthropicKey || !draftReport || ungroundedClaims.length === 0) return draftReport;
+
+  const t0 = Date.now();
+  const claimList = ungroundedClaims.map((c, i) => `${i + 1}. ${c}`).join('\n');
+
+  const systemPrompt = `Rewrite the following text to REMOVE specific unsupported claims. Replace them with generic hedges. Keep voice and structure. The text is written in the voices of podcast hosts — preserve their speaking style, use of first person, and conversational tone.
+
+Specifically, these claims have no citation support and must be softened or dropped:
+${claimList}
+
+Rules:
+- Do NOT add new specific claims not in the original
+- Do NOT change the overall argument or structure
+- Use phrases like "in the ballpark of", "substantial", "significant", "considerable", "reportedly" as replacements for unsupported specifics
+- If a claim is a legislative name (e.g. "Section 338 of the tariff act"), replace with a generic reference (e.g. "the relevant tariff provision")
+- Keep citation markers [N] that were already present
+- Output ONLY the rewritten text, no preamble`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REWRITE_TIMEOUT_MS);
+
+  try {
+    const client = new Anthropic({ apiKey: anthropicKey });
+    const res = await client.messages.create(
+      {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        temperature: 0.2,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: draftReport.slice(0, 3500) }],
+      },
+      { signal: controller.signal }
+    );
+
+    const rewritten = res.content[0]?.type === 'text' ? res.content[0].text : draftReport;
+    console.log(`[rewrite-hedge] rewrote ${ungroundedClaims.length} ungrounded claims in ${Date.now() - t0}ms`);
+    return rewritten;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[rewrite-hedge] failed after ${Date.now() - t0}ms: ${msg}`);
+    return draftReport;
   } finally {
     clearTimeout(timer);
   }

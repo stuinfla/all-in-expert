@@ -33,6 +33,13 @@ export interface CachedResponse {
   segmentsFound: number;
   totalEntries: number;
   searchMode: string;
+  /**
+   * Synthesis disclaimer surfaced to the frontend so users understand the
+   * dialogue is a paraphrased reconstruction of the besties' positions —
+   * not verbatim quotes. Always set on fresh syntheses; older cached
+   * payloads may lack it (optional for back-compat).
+   */
+  disclaimer?: string;
 }
 
 interface CacheKey {

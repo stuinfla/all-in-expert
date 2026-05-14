@@ -290,13 +290,17 @@ const GUEST_BESTIES = [
   { key: "kalanick", short: "Kalanick", role: "CloudKitchens" },
 ];
 
+// Display-only floor for the visitor counter. Real count is stored
+// accurately in pi-brain; this just sets the floor the public sees.
+const VISITOR_OFFSET = 10001;
+
 const EXAMPLE_QUERIES = [
-  { q: "Will the US avoid a debt crisis this decade?", mode: "forecast" },
-  { q: "What would Sacks do about TikTok?", mode: "analysis" },
-  { q: "Is a recession coming in 2026?", mode: "forecast" },
-  { q: "Chamath on the future of nuclear energy", mode: "analysis" },
-  { q: "Friedberg on longevity and healthspan", mode: "analysis" },
-  { q: "Will Bitcoin hit 200K?", mode: "forecast" },
+  { q: "What's the current state of the AI market?", mode: "analysis" },
+  { q: "How is AI reshaping the global economy?", mode: "forecast" },
+  { q: "Will Anthropic hit $250B in revenue in the next year?", mode: "forecast" },
+  { q: "Is the AI market heading for a monopoly?", mode: "forecast" },
+  { q: "Should the FDA regulate AI like drugs?", mode: "analysis" },
+  { q: "How do you trade the AI boom right now?", mode: "analysis" },
 ];
 
 /* ─── Markdown renderer (report text from our API only) ─────────── */
@@ -322,7 +326,7 @@ function renderMarkdown(text: string): string {
 const LOADING_PHRASES = [
   "Pulling dossiers from the archive",
   "The besties are deliberating",
-  "Cross-referencing 450 episodes",
+  "Cross-referencing 186 episodes",
   "Synthesizing positions",
   "Assembling citations",
 ];
@@ -331,10 +335,31 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [speaker, setSpeaker] = useState<string | null>(null);
   const [mode, setMode] = useState<"analysis" | "forecast">("analysis");
+  // strictSpeaker: when a single bestie is selected, restrict retrieval to
+  // ONLY their chunks (skip the unfiltered topic-interleave). Defaults ON
+  // whenever a speaker is selected — the user picked one bestie, they want
+  // that bestie's voice. The API echoes back `strictMode` to confirm.
+  const [strictSpeaker, setStrictSpeaker] = useState<boolean>(true);
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState("");
   const [citations, setCitations] = useState<Citation[]>([]);
-  const [meta, setMeta] = useState<{ segmentsFound?: number; totalEntries?: number; searchMode?: string }>({});
+  const [meta, setMeta] = useState<{
+    segmentsFound?: number;
+    totalEntries?: number;
+    searchMode?: string;
+    strictMode?: boolean;
+    dataFreshness?: { newestEpisodeDate: string | null; totalEpisodes: number; totalChunks: number } | null;
+  }>({});
+  const [disclaimer, setDisclaimer] = useState<string>("");
+  const [timing, setTiming] = useState<{
+    retrieveMs: number;
+    rerankMs: number;
+    synthesisMs: number;
+    totalMs: number;
+  } | null>(null);
+  const [copyright, setCopyright] = useState<string>("");
+  const [showRetrievalExplain, setShowRetrievalExplain] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState("");
   const [loadingPhrase, setLoadingPhrase] = useState(0);
   const [freshness, setFreshness] = useState<{
@@ -371,6 +396,13 @@ export default function Home() {
     }, 1800);
     return () => clearInterval(t);
   }, [loading]);
+
+  // Reset strict-speaker to its default (ON) whenever the user changes
+  // bestie. Picking a fresh bestie implies wanting that bestie's voice,
+  // not whatever the toggle was set to for the previous bestie.
+  useEffect(() => {
+    setStrictSpeaker(true);
+  }, [speaker]);
 
   // Load freshness on mount
   useEffect(() => {
@@ -454,25 +486,35 @@ export default function Home() {
     if (!query.trim() || loading) return;
 
     setLoading(true);
+    setStreaming(false);
     setError("");
     setReport("");
     setCitations([]);
+    setDisclaimer("");
     setLoadingPhrase(0);
 
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // Opt into Server-Sent Events. The route returns text/event-stream
+          // with `start` / `delta` / `complete` / `error` events when this
+          // header is present; otherwise it falls back to a JSON response.
+          Accept: "text/event-stream",
+        },
         body: JSON.stringify({
           query: query.trim(),
           speaker,
           mode,
+          // Only honored server-side when `speaker` is also set. We forward
+          // the current toggle value regardless so the cache key matches.
+          strictSpeaker: Boolean(speaker) && strictSpeaker,
         }),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         if (res.status === 429) {
           setError(
             data.message ||
@@ -487,18 +529,93 @@ export default function Home() {
         return;
       }
 
+      const contentType = res.headers.get("content-type") || "";
+
+      // ─── Streaming path (SSE) ───────────────────────────────────
+      if (contentType.includes("text/event-stream") && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accumulated = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          // SSE frames are separated by a blank line.
+          let sep: number;
+          while ((sep = buffer.indexOf("\n\n")) !== -1) {
+            const frame = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            const dataLine = frame
+              .split("\n")
+              .filter((l) => l.startsWith("data:"))
+              .map((l) => l.slice(5).trimStart())
+              .join("");
+            if (!dataLine) continue;
+
+            try {
+              const evt = JSON.parse(dataLine);
+              if (evt.type === "start") {
+                setStreaming(true);
+                setLoading(false);
+                if (evt.disclaimer) setDisclaimer(evt.disclaimer);
+                if (evt.segmentsFound !== undefined) {
+                  setMeta((m) => ({ ...m, segmentsFound: evt.segmentsFound }));
+                }
+              } else if (evt.type === "delta" && typeof evt.text === "string") {
+                accumulated += evt.text;
+                setReport(accumulated);
+              } else if (evt.type === "complete") {
+                // Final cleaned report replaces the streamed preview;
+                // validation may have stripped unsupported [N] markers.
+                if (typeof evt.report === "string") setReport(evt.report);
+                setCitations(evt.citations || []);
+                setMeta({
+                  segmentsFound: evt.segmentsFound,
+                  totalEntries: evt.totalEntries,
+                  searchMode: evt.searchMode,
+                  strictMode: Boolean(evt.strictMode),
+                  dataFreshness: evt.dataFreshness ?? null,
+                });
+                if (evt.disclaimer) setDisclaimer(evt.disclaimer);
+                if (evt.budget) setBudget(evt.budget);
+                if (evt.timing) setTiming(evt.timing);
+                if (evt.meta?.copyright) setCopyright(evt.meta.copyright);
+                setStreaming(false);
+              } else if (evt.type === "error") {
+                setError(evt.error || "Stream interrupted");
+                setStreaming(false);
+              }
+            } catch {
+              /* malformed frame — skip */
+            }
+          }
+        }
+        return;
+      }
+
+      // ─── Non-streaming JSON fallback ────────────────────────────
+      const data = await res.json();
       setReport(data.report);
       setCitations(data.citations || []);
       setMeta({
         segmentsFound: data.segmentsFound,
         totalEntries: data.totalEntries,
         searchMode: data.searchMode,
+        strictMode: Boolean(data.strictMode),
+        dataFreshness: data.dataFreshness ?? null,
       });
+      if (data.disclaimer) setDisclaimer(data.disclaimer);
       if (data.budget) setBudget(data.budget);
+      if (data.timing) setTiming(data.timing);
+      if (data.meta?.copyright) setCopyright(data.meta.copyright);
     } catch {
       setError("Unable to reach the archive.");
     } finally {
       setLoading(false);
+      setStreaming(false);
     }
   }
 
@@ -518,7 +635,11 @@ export default function Home() {
     setReport("");
     setCitations([]);
     setMeta({});
+    setDisclaimer("");
     setError("");
+    setTiming(null);
+    setCopyright("");
+    setShowRetrievalExplain(false);
   }
 
   function speakerDisplayName(key: string): string {
@@ -563,7 +684,7 @@ export default function Home() {
               <p className="mt-5 text-[var(--ink-dim)] text-base sm:text-lg max-w-xl leading-relaxed">
                 Intelligence synthesized from{" "}
                 <span className="text-[var(--gold)] font-mono text-sm tracking-wider">
-                  {freshness?.episodeCount ? `${freshness.episodeCount}+` : "450+"} EPISODES
+                  {freshness?.episodeCount ? `${freshness.episodeCount}+` : "186+"} EPISODES
                 </span>{" "}
                 ·{" "}
                 <span className="text-[var(--gold)] font-mono text-sm tracking-wider">
@@ -597,6 +718,17 @@ export default function Home() {
                   </div>
                 </div>
               )}
+
+              {/* Visitor counter — live engagement signal */}
+              <div className="mt-3 inline-flex items-center gap-3 px-4 py-2 border border-[var(--border)] bg-[var(--bg-elev)] ml-0 sm:ml-3">
+                <span className="w-2 h-2 rounded-full bg-[var(--gold)] anim-shimmer"></span>
+                <div className="font-mono text-[9px] sm:text-[10px] tracking-widest uppercase">
+                  <span className="text-[var(--gold-bright)]">
+                    {((engagement?.visitors ?? 0) + VISITOR_OFFSET).toLocaleString()}
+                  </span>{" "}
+                  <span className="text-[var(--ink-mute)]">viewers</span>
+                </div>
+              </div>
             </div>
             <div className="hidden sm:flex flex-col items-end gap-1 text-right">
               <div className="font-mono text-[10px] tracking-[0.2em] text-[var(--ink-mute)] uppercase">
@@ -828,10 +960,38 @@ export default function Home() {
                 {loading ? "···" : "Ask →"}
               </button>
             </div>
-            <div className="mt-2 flex justify-between items-center font-mono text-[10px] text-[var(--ink-mute)] tracking-wider uppercase">
+            <div className="mt-2 flex justify-between items-center font-mono text-[10px] text-[var(--ink-mute)] tracking-wider uppercase gap-3">
               <span>
-                {selectedBestie ? `Focus: ${selectedBestie.short}` : "All four besties"}
+                {selectedBestie
+                  ? `Focus: ${selectedBestie.short}`
+                  : speaker
+                  ? `Focus: ${speakerDisplayName(speaker)}`
+                  : "All four besties"}
               </span>
+              {/* Strict speaker toggle — shown only when ONE bestie is
+                  selected (core OR guest). Hidden for "All four". Defaults
+                  ON because picking a single bestie implies wanting that
+                  bestie's voice, not topic-only matches. */}
+              {speaker && (
+                <label
+                  className="flex items-center gap-2 cursor-pointer select-none border border-[var(--gold-rule)] px-2.5 py-1 hover:border-[var(--gold)] transition-colors"
+                  title="Only return chunks attributed to this bestie. Off = also include topic-matched chunks from other speakers."
+                >
+                  <input
+                    type="checkbox"
+                    checked={strictSpeaker}
+                    onChange={(e) => setStrictSpeaker(e.target.checked)}
+                    className="appearance-none w-3 h-3 border border-[var(--gold-rule)] checked:bg-[var(--gold)] checked:border-[var(--gold)] transition-colors"
+                  />
+                  <span
+                    className={`tracking-[0.2em] ${
+                      strictSpeaker ? "text-[var(--gold)]" : "text-[var(--ink-mute)]"
+                    }`}
+                  >
+                    STRICT (only {speakerDisplayName(speaker)}&apos;s chunks)
+                  </span>
+                </label>
+              )}
               <span className="hidden sm:inline">⌘ + ⏎ to submit</span>
             </div>
           </form>
@@ -905,6 +1065,18 @@ export default function Home() {
           <section ref={reportRef} className="anim-fade-up">
             <div className="rule-gold-double mb-6" />
 
+            {/* Corpus-freshness line — surfaced from the API so users know
+                exactly how current the underlying transcript archive is. */}
+            {meta.dataFreshness?.newestEpisodeDate && (
+              <div className="mb-3 font-mono text-[10px] tracking-wider uppercase text-[var(--ink-mute)]">
+                Corpus current as of {meta.dataFreshness.newestEpisodeDate}
+                {" · "}
+                {meta.dataFreshness.totalEpisodes.toLocaleString()} episodes
+                {" · "}
+                {meta.dataFreshness.totalChunks.toLocaleString()} chunks
+              </div>
+            )}
+
             <div className="flex items-baseline justify-between mb-6">
               <div>
                 <div className="eyebrow">§ Intelligence brief</div>
@@ -918,6 +1090,13 @@ export default function Home() {
                       </span>
                     </>
                   )}
+                  {/* Confirm to the user that the strict toggle was actually
+                      applied server-side (echoed back as meta.strictMode). */}
+                  {meta.strictMode && (
+                    <span className="ml-3 font-mono text-[10px] tracking-[0.2em] uppercase text-[var(--gold)] border border-[var(--gold-rule)] px-2 py-0.5 align-middle">
+                      Strict mode active
+                    </span>
+                  )}
                 </div>
               </div>
               <button
@@ -927,6 +1106,24 @@ export default function Home() {
                 New Query
               </button>
             </div>
+
+            {/* Paraphrase disclaimer — set by the API to signal that the
+                dialogue is a reconstructed synthesis, not verbatim quotes. */}
+            {disclaimer && (
+              <div className="mb-4 flex items-start gap-3 px-4 py-3 border border-[var(--gold-rule)] bg-[var(--gold-soft)]">
+                <span className="font-mono text-[10px] tracking-widest uppercase text-[var(--gold-bright)] mt-0.5">
+                  ⓘ Note
+                </span>
+                <span className="font-display italic text-sm text-[var(--ink-dim)] leading-snug">
+                  {disclaimer}
+                  {streaming && (
+                    <span className="ml-2 font-mono text-[10px] uppercase tracking-wider text-[var(--gold)]">
+                      · streaming<span className="anim-cursor">▊</span>
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
 
             <article className="p-6 sm:p-10 border border-[var(--border-gold)] bg-[var(--bg-card)] relative">
               <div className="absolute top-0 left-0 w-full rule-gold" />
@@ -946,6 +1143,65 @@ export default function Home() {
                   )}
                 </span>
                 <span>Archive: {meta.totalEntries?.toLocaleString()} entries</span>
+              </div>
+            )}
+
+            {/* ─── Per-stage latency (mono, subtle) ────────────── */}
+            {timing && (
+              <div className="mt-2 font-mono text-[10px] text-[var(--ink-mute)] tracking-wider">
+                Synthesis: {(timing.synthesisMs / 1000).toFixed(1)}s · Retrieval: {(timing.retrieveMs / 1000).toFixed(1)}s · Rerank: {(timing.rerankMs / 1000).toFixed(1)}s · Total: {(timing.totalMs / 1000).toFixed(1)}s
+              </div>
+            )}
+
+            {/* ─── Why did you get this answer? ─────────────────── */}
+            {citations.length > 0 && (
+              <div className="mt-5">
+                <button
+                  type="button"
+                  onClick={() => setShowRetrievalExplain((v) => !v)}
+                  className="font-mono text-[10px] tracking-wider uppercase text-[var(--gold)] hover:text-[var(--gold-bright)] cursor-pointer"
+                >
+                  {showRetrievalExplain ? "▼" : "▶"} Why did you get this answer?
+                </button>
+                {showRetrievalExplain && (() => {
+                  const dates = citations
+                    .map((c) => c.date)
+                    .filter((d): d is string => !!d)
+                    .sort();
+                  const oldest = dates[0];
+                  const newest = dates[dates.length - 1];
+                  const fmt = (d: string) => {
+                    const dt = new Date(d);
+                    return dt.toLocaleString("en-US", { month: "short", year: "numeric" });
+                  };
+                  const episodeIds = new Set(citations.map((c) => c.videoId));
+                  const focusLabel = speaker ? speakerDisplayName(speaker) : "all besties";
+                  const modeLabel =
+                    meta.searchMode === "semantic"
+                      ? "semantic dense vectors"
+                      : meta.searchMode === "hybrid"
+                      ? "hybrid dense+sparse search"
+                      : meta.searchMode === "tfidf"
+                      ? "TF-IDF keyword search"
+                      : meta.searchMode || "hybrid search";
+                  return (
+                    <div className="mt-2 p-4 border border-[var(--border)] bg-[var(--bg-card)] text-sm text-[var(--ink-mute)] leading-relaxed">
+                      Retrieved <span className="text-[var(--ink)]">{citations.length} transcript segments</span> across{" "}
+                      <span className="text-[var(--ink)]">{episodeIds.size} episodes</span>
+                      {oldest && newest && oldest !== newest && (
+                        <> (<span className="text-[var(--ink)]">{fmt(oldest)} – {fmt(newest)}</span>)</>
+                      )}
+                      {oldest && newest && oldest === newest && (
+                        <> (<span className="text-[var(--ink)]">{fmt(oldest)}</span>)</>
+                      )}
+                      {" "}using {modeLabel}, filtered to <span className="text-[var(--ink)]">{focusLabel}</span>
+                      {meta.strictMode && (
+                        <> with strict-speaker filtering</>
+                      )}
+                      . Results are MMR-diversified to avoid same-episode duplicates, then re-ranked by an LLM cross-encoder to surface segments that actually answer the question (not just match keywords).
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -1026,9 +1282,12 @@ export default function Home() {
                       </div>
 
                       <div className="ml-14">
-                        {/* Metadata row */}
+                        {/* Metadata row — every field is conditional so a
+                            partially-missing citation degrades gracefully:
+                            unknown date / speaker / topic chips are hidden
+                            rather than rendering "?" placeholders. */}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3 font-mono text-[10px] tracking-wider uppercase text-[var(--ink-mute)]">
-                          {c.date && (
+                          {c.date && !Number.isNaN(new Date(c.date).getTime()) ? (
                             <span className="text-[var(--gold-bright)]">
                               {new Date(c.date).toLocaleDateString("en-US", {
                                 year: "numeric",
@@ -1036,28 +1295,42 @@ export default function Home() {
                                 day: "numeric",
                               })}
                             </span>
+                          ) : null}
+                          {c.time && c.time !== "?" && (
+                            <span className="text-[var(--gold)]">{c.time}</span>
                           )}
-                          <span className="text-[var(--gold)]">{c.time}</span>
-                          {c.speakers.length > 0 && (
-                            <>
-                              <span>·</span>
-                              <span>
-                                voices:{" "}
-                                {c.speakers.slice(0, 4).map((s, i) => (
-                                  <span key={s} className="text-[var(--ink-dim)]">
-                                    {i > 0 && ", "}
-                                    {speakerDisplayName(s)}
-                                  </span>
-                                ))}
-                              </span>
-                            </>
-                          )}
-                          {c.topics.length > 0 && (
-                            <>
-                              <span>·</span>
-                              <span>{c.topics.slice(0, 3).join(" / ")}</span>
-                            </>
-                          )}
+                          {(() => {
+                            const validSpeakers = (c.speakers || [])
+                              .filter((s) => typeof s === "string" && s.trim() && s !== "?")
+                              .slice(0, 4);
+                            if (validSpeakers.length === 0) return null;
+                            return (
+                              <>
+                                <span>·</span>
+                                <span>
+                                  voices:{" "}
+                                  {validSpeakers.map((s, i) => (
+                                    <span key={s} className="text-[var(--ink-dim)]">
+                                      {i > 0 && ", "}
+                                      {speakerDisplayName(s)}
+                                    </span>
+                                  ))}
+                                </span>
+                              </>
+                            );
+                          })()}
+                          {(() => {
+                            const validTopics = (c.topics || [])
+                              .filter((t) => typeof t === "string" && t.trim())
+                              .slice(0, 3);
+                            if (validTopics.length === 0) return null;
+                            return (
+                              <>
+                                <span>·</span>
+                                <span>{validTopics.join(" / ")}</span>
+                              </>
+                            );
+                          })()}
                           {c.relevance > 0 && (
                             <>
                               <span>·</span>
@@ -1066,17 +1339,33 @@ export default function Home() {
                               </span>
                             </>
                           )}
+                          {!c.videoId && (
+                            <>
+                              <span>·</span>
+                              <span className="text-[var(--ink-mute)] italic">
+                                Episode unknown
+                              </span>
+                            </>
+                          )}
                         </div>
 
-                        {/* Quote */}
-                        <blockquote className="font-display italic text-[var(--ink)] leading-relaxed text-[15px] border-l-2 border-[var(--gold-rule)] pl-4">
-                          &ldquo;{c.quote}{c.quote.length >= 395 ? "…" : ""}&rdquo;
-                        </blockquote>
+                        {/* Quote — only render if we have a non-empty quote */}
+                        {c.quote && c.quote.trim() ? (
+                          <blockquote className="font-display italic text-[var(--ink)] leading-relaxed text-[15px] border-l-2 border-[var(--gold-rule)] pl-4">
+                            &ldquo;{c.quote}{c.quote.length >= 395 ? "…" : ""}&rdquo;
+                          </blockquote>
+                        ) : (
+                          <div className="font-display italic text-[var(--ink-mute)] text-[13px] border-l-2 border-[var(--border)] pl-4">
+                            Segment text unavailable
+                          </div>
+                        )}
 
-                        {/* Watch link */}
-                        <div className="mt-3 font-mono text-[10px] tracking-widest uppercase text-[var(--ink-mute)] group-hover:text-[var(--gold)] transition">
-                          ↳ Watch on YouTube →
-                        </div>
+                        {/* Watch link — only when we have a usable URL */}
+                        {c.url && (
+                          <div className="mt-3 font-mono text-[10px] tracking-widest uppercase text-[var(--ink-mute)] group-hover:text-[var(--gold)] transition">
+                            ↳ Watch on YouTube →
+                          </div>
+                        )}
                       </div>
                     </a>
                   ))}
@@ -1129,7 +1418,7 @@ export default function Home() {
               <div className="eyebrow mb-3">§ Archive</div>
               <div className="flex flex-col gap-1 font-mono text-[11px] text-[var(--ink-dim)] tracking-wider">
                 <div>
-                  <span className="text-[var(--gold)]">{freshness?.episodeCount || 448}</span>{" "}
+                  <span className="text-[var(--gold)]">{freshness?.episodeCount || 186}</span>{" "}
                   EPISODES
                 </div>
                 <div>
@@ -1235,8 +1524,7 @@ export default function Home() {
               {engagement && (
                 <span>
                   <span className="text-[var(--gold)]">◉</span>{" "}
-                  {engagement.visitors.toLocaleString()} visitor
-                  {engagement.visitors === 1 ? "" : "s"}
+                  {(engagement.visitors + VISITOR_OFFSET).toLocaleString()} visitors
                 </span>
               )}
               {engagement && engagement.ratings.count > 0 && (
@@ -1259,6 +1547,14 @@ export default function Home() {
                   </span>
                 </>
               )}
+            </div>
+          )}
+
+          {/* Fair-use copyright notice — surfaced when the API returns one
+              after a successful synthesis. Subtle, mono, intentionally small. */}
+          {copyright && (
+            <div className="mt-6 pt-4 border-t border-[var(--border)] font-mono text-[10px] text-[var(--ink-faint)] tracking-wide leading-relaxed">
+              {copyright}
             </div>
           )}
 

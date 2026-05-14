@@ -23,13 +23,30 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://asktheallinexperts.vercel.app"),
   title: "Ask the All-In Experts",
   description:
-    "Intelligence from 450+ episodes of the All-In Podcast. Ask what Chamath, Sacks, Friedberg, Jason and the guest besties would think about any topic. Real citations, real forecasts.",
+    "Intelligence from 186+ episodes of the All-In Podcast. Ask what Chamath, Sacks, Friedberg, Jason and the guest besties would think about any topic. Real citations, real forecasts.",
   openGraph: {
     title: "Ask the All-In Experts",
     description: "5.8 million words. Four minds (plus guests). One intelligence system.",
     type: "website",
+    url: "https://asktheallinexperts.vercel.app",
+    siteName: "Ask the All-In Experts",
+    images: [
+      {
+        url: "/icon-512.png",
+        width: 512,
+        height: 512,
+        alt: "Ask the All-In Experts",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Ask the All-In Experts",
+    description: "5.8 million words. Four minds (plus guests). One intelligence system.",
+    images: ["/icon-512.png"],
   },
 };
 

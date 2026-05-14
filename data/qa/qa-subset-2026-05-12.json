@@ -1,0 +1,433 @@
+[
+  {
+    "id": "q01",
+    "category": "Markets",
+    "query": "Whether Anthropic is doing a good job these days",
+    "grade": {
+      "voice": 72,
+      "grounding": 58,
+      "citations": 42,
+      "recency": 68,
+      "usefulness": 65,
+      "overall": 61,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Strong conversational authenticity undermined by vague, incomplete citations that cannot be verified or traced to specific claims",
+      "strengths": [
+        "Authentic All-In voice—natural disagreement, specific names/dates, characteristic hot takes from each speaker",
+        "Recency signals present (Opus 4.6→4.7 release, Jan 2025 Sacks role, 70k-word profile reference, SpaceX IPO timing)",
+        "Substantive disagreement on safety-as-moat vs. safety-as-liability shows nuanced position-taking",
+        "Concrete details (2/3 thinking time cut, 100B quarterly Google cloud, 20% YoY growth) add texture"
+      ],
+      "weaknesses": [
+        "Citations completely broken: [3], [5], [6] show partial transcripts with no timestamps, speaker attribution, or episode reference; impossible to verify claims like '100 billion a quarter' Google revenue or Dario's 'socopath' profile attribution",
+        "Factual gaps: 'Mythos' mentioned in Q but never substantiated; 70k-word profile never sourced; '70% cut thinking time' phrased as observation but uncited",
+        "Grounding weak on macro claims: 'only so many dollars to go around' is opinion, not fact; Anthropic monopoly framing unsupported",
+        "Recency illusion: mentions Jan 2025 context but no episode date provided; unclear if synthesis is from recent episode or stitched from multiple",
+        "Usefulness limited: answers 'are they doing a good job?' with 'it's complicated' and internal contradictions (safety moat vs. liability) without resolution"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 7319
+  },
+  {
+    "id": "q02",
+    "category": "Macro",
+    "query": "What do the besties think about the US national debt crisis?",
+    "grade": {
+      "voice": 85,
+      "grounding": 72,
+      "citations": 45,
+      "recency": 78,
+      "usefulness": 76,
+      "overall": 71,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Strong conversational authenticity undermined by citation opacity and incomplete sourcing",
+      "strengths": [
+        "Excellent voice/persona capture—dialogue feels natural and characteristic to each speaker",
+        "Solid recency: tax cuts through 2034, recent CBO projections, current Treasury rates",
+        "Useful synthesis of multi-perspective framework (revenue/spending/growth levers)",
+        "Concrete numbers ($37T debt, $2.5T deficit, $1.2T interest, 600% debt-to-GDP) grounded in real policy",
+        "Strong narrative arc that builds toward consensus conclusion (unsustainability)"
+      ],
+      "weaknesses": [
+        "Citations are severely compromised: most lack source speaker (sp=?) or podcast episode identifier; [4] attributed to Elon but Elon is not a regular All-In guest",
+        "Citation text fragments are often truncated and lack timestamps, making verification impossible",
+        "CBO projection [6] incomplete—doesn't specify report date or full context",
+        "Tax Foundation estimate [Sacks' $4.1T claim] has no citation at all",
+        "Citations [7], [8], [9], [11], [12] are clearly off-topic (Chicago mayor, AI agents, higher ed bubble, inflation)—suggests poor retrieval or hallucination in source matching",
+        "No episode date provided; unclear if this is synthesized from recent episode or composite",
+        "Grounding weakened by inability to verify whether these exact quotes/figures appeared in actual episodes"
+      ],
+      "citation_quality_note": "12 citations listed but only ~5-6 are semantically relevant; citation system appears corrupted or search failed to match podcast content properly"
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5269
+  },
+  {
+    "id": "q04",
+    "category": "Crypto",
+    "query": "What does Sacks think about crypto regulation right now?",
+    "speaker": "sacks",
+    "grade": {
+      "voice": 85,
+      "grounding": 72,
+      "citations": 45,
+      "recency": 88,
+      "usefulness": 78,
+      "overall": 74,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations lack specificity—timestamps/episode refs missing; citation quality degrades sharply after [4]",
+      "strengths": [
+        "Authentic voice—captures Sacks' cadence, confidence, and rhetorical moves naturally",
+        "Recent context—reflects Jan 2025 shift in crypto regulatory posture accurately",
+        "Substantive depth—specific technical claims (substituted compliance, primary regulator model, Tether framing)",
+        "Conversational structure—multi-speaker synthesis feels earned, not stitched",
+        "Policy narrative coherence—year-ago→now arc is clear and defensible",
+        "Bipartisan framing—cited as fact, aligns with observable Jan 2025 movement"
+      ],
+      "weaknesses": [
+        "Citations [5-12] are orphaned—no connection to Sacks crypto claims; appear to be spillover/noise from other segments",
+        "No episode/date stamps—'sp=?' makes verification impossible for claims [1-4]",
+        "Chamath debanking anecdote (president debanking) is presented as fact without citation or caveat",
+        "Gensler 'prosecution vs. regulation' framing is paraphrased but not directly attributed to episode",
+        "Circle/Tether gray-market mechanism is inferred dialogue, not clearly sourced",
+        "Response cuts off mid-sentence—truncation undermines credibility",
+        "No confidence signals on speculative claims (e.g., will gray-market actors come onshore?)",
+        "Citation format is unhelpful—partial snippets with no searchability"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5180
+  },
+  {
+    "id": "q05",
+    "category": "Forecast",
+    "query": "Will Bitcoin hit 200k by end of 2026?",
+    "mode": "forecast",
+    "grade": {
+      "voice": 78,
+      "grounding": 62,
+      "citations": 28,
+      "recency": 72,
+      "usefulness": 71,
+      "overall": 62,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are severely degraded—mostly corrupted, speaker-unattributed, topically incoherent, and fail to substantiate core claims (Saylor leverage, macro thesis, allocation frameworks)",
+      "strengths": [
+        "Authentic voice: Captures conversational tone, speaker personalities, and real disagreement patterns from All-In podcast",
+        "Structural integrity: Multi-perspective framework with probability ranges (35-70%) shows intellectual rigor",
+        "Recency-aware: Correctly time-anchors to May 2026, references Trump admin crypto stance, avoids anachronism",
+        "Domain texture: Includes credible details (MicroStrategy leveraged long, 5-15% allocation rule, mining/datacenter link) that feel empirically grounded",
+        "Useful for prediction modeling: Breaks down bull/bear cases and assigns differentiated confidence levels"
+      ],
+      "weaknesses": [
+        "Citation collapse: 11 of 12 citations are corrupted or nonsensical—no speaker attribution, incoherent snippets, zero relevance to Bitcoin forecasts (homophobia reference, Google/Anthropic, Austin housing)",
+        "Unsubstantiated claims: Saylor's 'near-zero rate' leverage, specific probability thresholds, and macro deterioration thesis lack evidentiary backing",
+        "Missing forward data: No mention of actual May 2026 market conditions, regulatory shifts, or institutional adoption metrics that would ground the forecast",
+        "Grounding failure: Conversational authenticity masks weak factual underpinning—readers can't verify anything",
+        "Citation UX: sp=? placeholders and corrupted text make citations unusable and undermine credibility"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 6930
+  },
+  {
+    "id": "q06",
+    "category": "Science",
+    "query": "What does Friedberg think about nuclear energy?",
+    "speaker": "friedberg",
+    "grade": {
+      "voice": 78,
+      "grounding": 72,
+      "citations": 35,
+      "recency": 82,
+      "usefulness": 75,
+      "overall": 68,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are severely degraded—mostly orphaned or vague speaker attributions with incomplete timestamps; makes verification impossible despite strong conversational voice and topically current framing.",
+      "strengths": [
+        "Authentic conversational tone captures Friedberg's actual argumentative style (subsidy arbitrage, regulatory capture, China comparison)",
+        "Timely framing (AI datacenter energy demand, 2025+ political context with Sacks appointment)",
+        "Structural clarity on the core claim: regulatory barriers > physics/economics as bottleneck",
+        "Connects multiple domains (energy policy → AI infrastructure → American competitiveness)",
+        "Specific reference to Gen 4 reactors and China's 2030 timeline shows recent awareness"
+      ],
+      "weaknesses": [
+        "Citations [1-12] almost entirely lack episode/date stamps; 8+ citations show 'sp=?' with no speaker ID",
+        "No URLs, timestamps, or episode numbers—impossible to fact-check claims (e.g., China's 10 MW unit, Italy's nuclear reversal, 'two-year confidentiality' claim)",
+        "Citation [5] attributed to 'baker' (likely Rick Perry or other guest?) with no clarification",
+        "Mixed speaker attribution—response blurs Friedberg quotes with Chamath/Sacks commentary without clear delineation of whose position is whose",
+        "Orphaned claim at [10] about 'private meeting' disclosure has no source context",
+        "No links to underlying data (China reactor specs, EU energy policy reversals, AI power demand forecasts)"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 4947
+  },
+  {
+    "id": "q08",
+    "category": "Tech",
+    "query": "Is OpenAI overvalued at current levels?",
+    "grade": {
+      "voice": 78,
+      "grounding": 62,
+      "citations": 45,
+      "recency": 72,
+      "usefulness": 68,
+      "overall": 65,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Strong conversational authenticity but weak evidentiary support for critical claims; citations often vague or unattributed",
+      "strengths": [
+        "Authentic All-In voice: natural pushback, specific takes (Sacks vs. Chamath framing), personality-driven debate",
+        "Recency signals: Jan 2025 context (Sacks as AI/Crypto Czar), secondary market trading data, IPO probability shifts (60%→32%), GPT 5.5 references",
+        "Structural intelligence: TAM framing, supply vs. demand constraint distinction, relative valuation (OpenAI vs. Anthropic), capital structure risk",
+        "Conversational realism: interrupts, hedges, unresolved tensions, natural debate flow"
+      ],
+      "weaknesses": [
+        "Citations severely underbaked: [1][5][6][11] lack speaker attribution or source URLs; [4][9] appear tangential/mismatched",
+        "Grounding failures: 'GPT 5.5' not verified (GPT-4o/o1 timeline unclear); 'Sarah Frier CFO tension' attributed but not sourced; Anthropic growth rates claimed but unlinked",
+        "Vague epistemic claims: 'reportedly worried,' 'reportedly in conflict,' 'developers on X saying' — no links to evidence",
+        "Missing critical data: no revenue figures, no actual secondary prices, no Anthropic vs. OpenAI growth % comparison despite being central claim",
+        "Citation format: [sp=elon] ambiguous (Chamath is Social Capital founder, not Elon); partial quotes lack context windows",
+        "Incomplete response: cuts off mid-sentence ('But in absolute terms, if you believe...')"
+      ],
+      "citation_quality_breakdown": {
+        "attributed_citations": 6,
+        "unattributed_citations": 6,
+        "verifiable_claims": 3,
+        "assertion_to_citation_ratio": "22 major claims / 12 citations = 1.83:1 (too high)"
+      }
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5974
+  },
+  {
+    "id": "q09",
+    "category": "Chamath",
+    "query": "What is Chamath's current macro view?",
+    "speaker": "chamath",
+    "grade": {
+      "voice": 82,
+      "grounding": 72,
+      "citations": 45,
+      "recency": 78,
+      "usefulness": 79,
+      "overall": 71,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are severely under-indexed to claims made; most citations are partial fragments or tangential, not direct support for core macro thesis",
+      "strengths": [
+        "Authentic voice & conversational flow—sounds like actual podcast dialogue, not synthesized",
+        "Multi-dimensional macro framing: AI → energy → infrastructure → policy → capital flight (coherent chain)",
+        "Recency signals present: rate cut probability shift (Sep cuts), Ken Griffin/Florida move, xAI facilities (Colossus, etc.)",
+        "Useful actionable frame: 'This is an infrastructure/energy trade, not a software trade'",
+        "Captures Chamath's actual persona and rhetorical style"
+      ],
+      "weaknesses": [
+        "Citation [1]–[12] are mostly orphaned fragments, not traceable to specific macro claims made in response",
+        "[5] discusses Elon's investments but doesn't cite Chamath's rates/energy worry claim",
+        "[6] Ken Griffin quote is cited but lacks date/context (\"today or yesterday\" is vague)",
+        "No citations for: September rate cut probability flip, Texas vs CA/NY electricity cost trends, China's 100+ nuclear reactors, nuclear reactor history (\"30 years ago\")",
+        "Citation mode='hybrid' retrieved clips but synthesis didn't anchor claims to them—appears post-hoc",
+        "Missing grounding on: xAI facility specs (1.2GW Blackwell claim), specific rate probabilities (25bps vs no-change), energy cost deltas by state",
+        "Friedberg's rate comment feels inserted for balance, not evidenced by citations"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5183
+  },
+  {
+    "id": "q11",
+    "category": "Politics",
+    "query": "What do the besties think about DOGE and government efficiency?",
+    "grade": {
+      "voice": 78,
+      "grounding": 62,
+      "citations": 45,
+      "recency": 72,
+      "usefulness": 68,
+      "overall": 65,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are vague and often unattributed; speaker designations frequently marked '?' making verification impossible. Grounding claims lack precision (e.g., '35% approval' cited to [9] but [9] references unclear statements). Strong narrative voice undermined by weak evidentiary rigor.",
+      "strengths": [
+        "Excellent conversational authenticity — mimics actual besties banter with natural disagreement and building on points",
+        "Timely subject matter (DOGE, fiscal spiral, regulatory accumulation) with recent political context (Sacks role Jan 2025)",
+        "Multi-perspective framing (Chamath macro focus, Sacks regulatory angle, Friedberg operational/tech lens) captures genuine podcast dynamics",
+        "Key insights are substantive (debt spiral math, regulatory accumulation, messaging/political economy constraints)",
+        "Natural interjections and follow-ups feel authentic to show format"
+      ],
+      "weaknesses": [
+        "Citations severely compromised: 5+ marked '?' (speaker unknown), making 40%+ unverifiable; [9] cites '35% approval' but quote doesn't contain that statistic",
+        "Incomplete quotations with ellipses obscure actual source statements, preventing fact-check",
+        "Grounding claims lack specificity: 'close to $2 trillion interest' [5] needs date context; debt math varies by year",
+        "Recency ambiguous: references 'two years ago' and 'now it's front and center' but DOGE timeline unclear (2024-25?)",
+        "Citation-to-claim mapping weak: many assertions lack citations or cite tangential quotes rather than supporting the exact claim",
+        "No date stamps on data (debt figures, approval ratings age unknown)",
+        "Usefulness hindered by unattributed claims — reader can't trace back to original pod segment for deeper context"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5851
+  },
+  {
+    "id": "q12",
+    "category": "Markets",
+    "query": "Is there an AI bubble forming?",
+    "grade": {
+      "voice": 78,
+      "grounding": 72,
+      "citations": 35,
+      "recency": 68,
+      "usefulness": 74,
+      "overall": 65,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are severely degraded—mostly orphaned with missing speaker attributions and incomplete source pointers; content quality high but citation infrastructure fails",
+      "strengths": [
+        "Authentic multi-perspective dialogue with distinct voices (Chamath's mechanics framing, Sacks' data-driven pivot, Friedberg's fundamentals focus)",
+        "Strong grounding in concrete examples (All Birds pivot, Meta hiring freeze, capex vs. revenue dynamics)",
+        "Nuanced thesis evolution: acknowledges bubble mechanics while distinguishing irrational exuberance from justified infrastructure cycles",
+        "Relevant to Jan 2025 context (Sacks' new role implicitly timely; enterprise AI adoption narrative current)",
+        "Practical frameworks (debt service test, 18-24mo capex-lead cycle, narrative vs. fundamentals distinction)"
+      ],
+      "weaknesses": [
+        "Citations almost unusable: 11 of 12 lack speaker attribution ('sp=?'); source pointers incomplete/truncated; [8] partially identifiable (Meta hiring freeze) but others (e.g., [1],[4],[5]) are semantic fragments without episode/timestamp",
+        "Recency claims thin: Meta freeze is ~6mo old (July 2024); no timestamps for capex/revenue data or enterprise adoption metrics; 'six months ago' comparisons lack dating",
+        "Grounding gaps: All Birds example mentioned but not substantiated with stock price/timeline; 'massive revenue ramps' asserted without specific figures (OpenAI, Anthropic, hyperscaler revenue)",
+        "Voice quality slightly synthetic: some transitions feel stitched (e.g., Friedberg's interruption at [2] cuts mid-sentence); repetition of 'bubble' framing could feel circular",
+        "Usefulness limited by lack of actionable metrics: no growth rates, multiples, or thresholds offered to readers assessing bubble risk themselves"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5980
+  },
+  {
+    "id": "q15",
+    "category": "Startups",
+    "query": "What is Jason's advice to early-stage founders right now?",
+    "speaker": "calacanis",
+    "grade": {
+      "voice": 72,
+      "grounding": 58,
+      "citations": 28,
+      "recency": 65,
+      "usefulness": 74,
+      "overall": 59,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are fabricated or severely mismatched to claims. The response reads authentically but citation anchors are either missing speaker IDs (sp=?), corrupt, or point to unrelated content (e.g., [12] cites California governor election). Trust is broken.",
+      "strengths": [
+        "Voice is strong and natural—dialogue feels genuinely like All-In banter with Chamath pushback and Friedberg synthesis",
+        "Usefulness is high: the core advice (commit, focus, keep moving) is actionable and consistent with known Calacanis philosophy",
+        "Thematic coherence: claims hang together logically and reflect plausible Calacanis positions on founder mentality",
+        "Recency acceptable: advice is timeless but framed as current-environment counsel (portfolio focus, pivot permission)"
+      ],
+      "weaknesses": [
+        "Citations are unreliable: [1] and [2] have no speaker IDs; [3], [5], [7], [10], [12] are clearly off-topic or corrupted; only ~3 of 12 appear possibly legitimate",
+        "Grounding fails: cannot verify the actual episode, date, or whether this conversation occurred. No timestamp, episode number, or publication date provided",
+        "No recency signal: undated synthesis—could be months or years old. Meta context (Sacks as AI Czar Jan2025) doesn't anchor the response itself",
+        "Citation transparency broken: readers cannot validate claims via provided references. This is critical for a 'synthesis AI' product",
+        "Hallucination risk: the polished dialogue + weak citations suggest reconstruction or interpolation rather than direct quotation"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 4212
+  },
+  {
+    "id": "q18",
+    "category": "Immigration",
+    "query": "What do the besties think about H-1B visas?",
+    "grade": {
+      "voice": 78,
+      "grounding": 62,
+      "citations": 35,
+      "recency": 72,
+      "usefulness": 71,
+      "overall": 64,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Strong conversational authenticity undermined by severely broken citation infrastructure—most citations don't map to claims, creating false credibility veneer",
+      "strengths": [
+        "Excellent voice synthesis—captures distinct personalities, natural disagreement patterns, and signature rhetorical moves (Sacks' precision, Chamath's provocative framing, Friedberg's systems thinking)",
+        "Coherent policy debate structure with real intellectual tension (labor arbitrage vs. cream-skimming, border vs. H-1B, fee mechanisms as lever)",
+        "Recency signals present (Sacks' Jan 2025 position, current competitive dynamics with Gulf states, China AI talent refs)",
+        "Pragmatic policy recommendations feel earned from debate (fee tiering, enforcement focus, Canada model comparison)"
+      ],
+      "weaknesses": [
+        "Citations are almost entirely fictional or unmapped—[6] on 85k→850k visa claim has no speaker attribution; [12] on Gulf competition is truncated mid-sentence with no connection to preceding claim; [2] appears to be Jason/Blinken/Afghanistan content spliced in",
+        "Core H-1B statistics unverified—'10x' cap claim, '5-6x illegal/legal immigrant ratio,' '10-15-20 year visa backlogs' stated as facts with broken citations",
+        "Grounding degraded by citation failure—impossible to verify what was actually said vs. AI interpolation; citation numbers inconsistent with quality (12 citations masking ~70% hallucination)",
+        "Recency overstated—no timestamps, no specific 2024-2025 policy changes cited, Sacks reference is metadata not synthesized from episode",
+        "Tone veers toward editorial synthesis rather than faithful representation—careful framing of 'consensus' may not reflect actual guest positions"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 5252
+  },
+  {
+    "id": "q20",
+    "category": "Media",
+    "query": "What is Sacks's view on media bias and censorship?",
+    "speaker": "sacks",
+    "grade": {
+      "voice": 72,
+      "grounding": 58,
+      "citations": 41,
+      "recency": 75,
+      "usefulness": 68,
+      "overall": 63,
+      "searchMode": "hybrid",
+      "citation_count": 12,
+      "key_issue": "Citations are attributed but lack episode dates, timestamps, and verifiable speaker confirmation; significant semantic drift between cited fragments and synthesis claims",
+      "strengths": [
+        "Authentic conversational voice captures Sacks's cadence and rhetorical style convincingly",
+        "Recency strong: WallStreetBets (2021) and Jan 2025 role placement are current within stated bounds",
+        "Thematic coherence: power asymmetry + institutional monoculture + selective enforcement is a consistent Sacks argument",
+        "Multi-speaker synthesis (Chamath, Friedberg, Jason) adds texture and avoids single-voice monotony",
+        "Useful framing: distinguishes bias vs. controlled discourse, chokepoint model is substantive"
+      ],
+      "weaknesses": [
+        "Citations lack episode IDs, dates, or timestamps—cannot independently verify claims",
+        "Speaker attribution in citations (sp=?) frequently unknown; [1], [7], [12] unattributed",
+        "Severe semantic leakage: [6] cited as Sacks but marked sp=tucker; [10] Reddit/GME framing differs materially from cited fragment",
+        "Citation [2] (Elon/Tucker on Musk's platform) is tangential to media bias question; weak relevance",
+        "Grounding soft: WallStreetBets case is real but Discord ban details, timing, and Sacks's actual statements on it unverified",
+        "No counterargument representation; synthesis leans heavily into power critique without platform/moderation defense",
+        "Hallucination risk: 'AI and Crypto Czar' title needs verification; Jan 2025 framing assumes real current role"
+      ]
+    },
+    "searchMode": "hybrid",
+    "segmentsFound": 12,
+    "citationCount": 12,
+    "reportLen": 6653
+  }
+]

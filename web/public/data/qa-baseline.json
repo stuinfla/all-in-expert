@@ -1,0 +1,7 @@
+{
+  "overall": 81,
+  "perQuestionFloor": 60,
+  "regressionTolerance": 3,
+  "createdAt": "2026-05-12",
+  "notes": "Baseline weighted-overall score for the 20-Q QA harness. Updated only after intentional, reviewed improvements (commit the bump alongside the change). qa-ci.mjs compares ./latest.json against this and fails when overall regresses by more than regressionTolerance points OR any individual question falls below perQuestionFloor."
+}

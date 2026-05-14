@@ -1,31 +1,35 @@
 /**
- * Engagement tracking — visitor count and 1-5 star ratings.
+ * Engagement tracking — visitor count + 1-5 star ratings.
  *
- * Same tier pattern as rate-limit: in-memory authoritative per-instance,
- * pi-brain for approximate cross-instance sync and persistence. Not exact
- * under heavy concurrent load, but fine for hobby-traffic social-proof
- * signals ("1,234 visitors · 4.2/5 from 27 ratings").
+ * Visitor count: abacus.jasoncameron.dev — free atomic INCR counter,
+ * no auth, no env vars, persistent across deploys + cold starts.
+ *
+ * Ratings: pi.ruv.io (kept) — needs sum aggregation, which abacus can't do.
  */
 
+// Visitor counter — abacus public atomic counter
+const ABACUS_BASE = 'https://abacus.jasoncameron.dev';
+const ABACUS_NS = 'asktheallinexperts';
+const ABACUS_KEY = 'visitors';
+const ABACUS_TIMEOUT_MS = 4000;
+
+// Read-cache: don't hammer abacus on every /api/stats GET
+let cachedVisitorCount = 0;
+let cachedAt = 0;
+const VISITOR_CACHE_TTL_MS = 5_000;
+
+// Ratings — still on pi-brain (needs sum, abacus is counter-only)
 const PI_BRAIN_BASE = 'https://pi.ruv.io/v1';
 const PI_BRAIN_KEY = process.env.PI_BRAIN_API_KEY || 'brain-ui';
 const PI_BRAIN_TIMEOUT_MS = 2500;
-
-// Deterministic titles so lookups always hit the latest aggregate
-const VISITS_TITLE = 'AIE-ENGAGEMENT visitors total';
 const RATINGS_TITLE = 'AIE-ENGAGEMENT ratings total';
 
-interface VisitorState {
-  total: number;
-  synced: boolean;
-}
 interface RatingsState {
   count: number;
   sum: number;
   synced: boolean;
 }
 
-const visitors: VisitorState = { total: 0, synced: false };
 const ratings: RatingsState = { count: 0, sum: 0, synced: false };
 
 async function fetchWithTimeout(
@@ -96,24 +100,42 @@ async function writeLatest(title: string, payload: object): Promise<void> {
   );
 }
 
-async function syncVisitors(): Promise<void> {
-  if (visitors.synced) return;
-  visitors.synced = true;
-  const hit = await readLatest(VISITS_TITLE);
-  if (!hit) return;
+async function abacusFetch(path: string): Promise<number | null> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ABACUS_TIMEOUT_MS);
   try {
-    const parsed = JSON.parse(hit.content) as { total?: number };
-    if (typeof parsed.total === 'number' && parsed.total > visitors.total) {
-      visitors.total = parsed.total;
-    }
+    const res = await fetch(`${ABACUS_BASE}${path}`, {
+      signal: c.signal,
+      cache: 'no-store',
+      redirect: 'follow',
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { value?: number };
+    return typeof j.value === 'number' ? j.value : null;
   } catch {
-    // skip
+    return null;
+  } finally {
+    clearTimeout(t);
   }
+}
+
+async function readVisitorCount(): Promise<number> {
+  const now = Date.now();
+  if (cachedVisitorCount > 0 && now - cachedAt < VISITOR_CACHE_TTL_MS) {
+    return cachedVisitorCount;
+  }
+  const v = await abacusFetch(`/get/${ABACUS_NS}/${ABACUS_KEY}`);
+  if (v !== null) {
+    cachedVisitorCount = v;
+    cachedAt = now;
+    return v;
+  }
+  // abacus unreachable — return last known
+  return cachedVisitorCount;
 }
 
 async function syncRatings(): Promise<void> {
   if (ratings.synced) return;
-  ratings.synced = true;
   const hit = await readLatest(RATINGS_TITLE);
   if (!hit) return;
   try {
@@ -122,16 +144,21 @@ async function syncRatings(): Promise<void> {
       ratings.count = parsed.count;
       ratings.sum = typeof parsed.sum === 'number' ? parsed.sum : 0;
     }
+    ratings.synced = true;
   } catch {
     // skip
   }
 }
 
 export async function recordVisit(): Promise<number> {
-  await syncVisitors();
-  visitors.total += 1;
-  writeLatest(VISITS_TITLE, { total: visitors.total, ts: Date.now() }).catch(() => {});
-  return visitors.total;
+  const v = await abacusFetch(`/hit/${ABACUS_NS}/${ABACUS_KEY}`);
+  if (v !== null) {
+    cachedVisitorCount = v;
+    cachedAt = Date.now();
+    return v;
+  }
+  // abacus unreachable — return last known so the UI doesn't regress
+  return cachedVisitorCount;
 }
 
 export async function recordRating(stars: number): Promise<{ count: number; avg: number }> {
@@ -154,9 +181,9 @@ export async function getEngagement(): Promise<{
   visitors: number;
   ratings: { count: number; avg: number };
 }> {
-  await Promise.all([syncVisitors(), syncRatings()]);
+  const [v] = await Promise.all([readVisitorCount(), syncRatings()]);
   return {
-    visitors: visitors.total,
+    visitors: v,
     ratings: {
       count: ratings.count,
       avg: ratings.count > 0 ? ratings.sum / ratings.count : 0,

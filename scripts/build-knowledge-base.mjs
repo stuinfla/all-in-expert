@@ -180,6 +180,22 @@ const SPEAKER_PROFILES = {
     expertise: ['political journalism', 'populism', 'foreign policy', 'trade policy'],
     biases: ['populist', 'anti-establishment', 'pro-worker'],
     debateStyle: 'Journalistic, brings historical context and policy detail.'
+  },
+  howery: {
+    name: 'Ken Howery', tier: 'guest',
+    role: 'Co-founder PayPal/Founders Fund, former US Ambassador to Sweden',
+    lensDescription: 'Early PayPal mafia investor turned diplomat. Bridges Silicon Valley and geopolitics.',
+    expertise: ['venture capital', 'diplomacy', 'PayPal mafia network', 'foreign policy', 'government'],
+    biases: ['pro-innovation', 'Silicon Valley network', 'internationalist'],
+    debateStyle: 'Measured, draws on both private-sector and government experience.'
+  },
+  doerr: {
+    name: 'John Doerr', tier: 'guest',
+    role: 'Chairman, Kleiner Perkins',
+    lensDescription: 'Legendary VC who backed Google and Amazon early. Climate-tech advocate, OKR evangelist.',
+    expertise: ['venture capital', 'climate tech', 'OKRs', 'Google/Amazon history', 'clean energy'],
+    biases: ['pro-climate', 'long-term optimist', 'Silicon Valley establishment'],
+    debateStyle: 'Principled, mission-driven, references specific portfolio outcomes and climate data.'
   }
 };
 
@@ -205,18 +221,275 @@ function loadTranscripts() {
   return transcripts;
 }
 
+// ─── Per-turn chunking constants ─────────────────────────────────────────────
+// Maximum words per turn-chunk before we force a split within the same speaker.
+const MAX_TURN_WORDS = 200;
+
+// Build a lookup structure: [{ speakerKey, regexes }] sorted longest alias first
+// so "jason calacanis" matches before "jason".
+const SPEAKER_ALIAS_LIST = Object.entries(SPEAKER_PROFILES).map(([key, profile]) => {
+  // SPEAKER_PROFILES uses `expertise` array, not `aliases`. The alias list is in
+  // process-captions.mjs's SPEAKERS dict. We replicate the relevant aliases here
+  // so this file stays self-contained and consistent.
+  const ALIASES = {
+    chamath:   ['chamath palihapitiya', 'chamath', 'palihapitiya'],
+    sacks:     ['david sacks', 'the rain man', 'sacky', 'sacks'],
+    friedberg: ['david friedberg', 'the sultan of science', 'science corner', 'freeberg', 'friedberg'],
+    calacanis: ['jason calacanis', 'j-cal', 'jcal', 'jason', 'calacanis'],
+    gerstner:  ['brad gerstner', 'gerstner'],
+    gurley:    ['bill gurley', 'gurley'],
+    baker:     ['gavin baker', 'gavin'],
+    thiel:     ['peter thiel', 'thiel'],
+    ackman:    ['bill ackman', 'ackman'],
+    gracias:   ['antonio gracias', 'gracias'],
+    rabois:    ['keith rabois', 'rabois'],
+    lonsdale:  ['joe lonsdale', 'lonsdale'],
+    naval:     ['naval ravikant', 'naval', 'ravikant'],
+    elon:      ['elon musk', 'musk', 'elon'],
+    tucker:    ['tucker carlson', 'tucker'],
+    kalanick:  ['travis kalanick', 'kalanick', 'travis'],
+    cuban:     ['mark cuban', 'cuban'],
+    shapiro:   ['ben shapiro', 'shapiro'],
+    saagar:    ['saagar enjeti', 'saagar', 'enjeti'],
+    howery:    ['ken howery', 'howery'],
+    doerr:     ['john doerr', 'doerr'],
+  };
+  const aliases = (ALIASES[key] || []).slice().sort((a, b) => b.length - a.length);
+  const regexes = aliases.map(a => new RegExp('\\b' + a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i'));
+  return { key, regexes };
+});
+
+/**
+ * Detect the primary speaker in a text segment.
+ * Returns the speakerKey of the first alias match, or 'unknown'.
+ */
+function detectPrimarySpeaker(text) {
+  const lower = text.toLowerCase();
+  for (const { key, regexes } of SPEAKER_ALIAS_LIST) {
+    for (const re of regexes) {
+      if (re.test(lower)) return key;
+    }
+  }
+  return 'unknown';
+}
+
+/**
+ * Build per-turn chunks from a transcript's raw segments (30-second units from
+ * process-captions.mjs). A "turn" is a consecutive run of segments whose text
+ * first introduces a speaker alias and continues until a DIFFERENT speaker alias
+ * appears. Turns are capped at MAX_TURN_WORDS; longer monologues are split into
+ * sub-turns that all share the same speakerKey.
+ *
+ * This produces single-speaker (or 'unknown') chunks without audio diarization.
+ */
+function buildTurnChunks(transcript) {
+  const segments = transcript.chunks || []; // 30-second units
+  const videoId = transcript.videoId;
+  const turnChunks = [];
+
+  // Walk segments, tracking current turn state
+  let currentSpeaker = 'unknown';
+  let currentText = '';
+  let currentStartMs = 0;
+  let currentEndMs = 0;
+  let currentTopicSet = new Set();
+  let turnIndex = 0;
+
+  // Sentence-boundary look-ahead cap (Issue A fix).
+  // After reaching MAX_TURN_WORDS, scan forward up to this many extra words
+  // to find a sentence terminator (.!?) followed by a capital letter, then
+  // close the chunk there. Prevents mid-sentence truncation.
+  const SENTENCE_LOOKAHEAD = 60;
+
+  /**
+   * Find a sentence-boundary split point in `words` starting at `base`.
+   * Scans forward up to SENTENCE_LOOKAHEAD words past `base` looking for a
+   * word ending in '.', '!', or '?' (sentence terminator). If the NEXT word
+   * starts with a capital letter (or the terminator is the last word), closes
+   * the chunk at that position. Falls back to `base` if no boundary is found.
+   */
+  function findSentenceBoundary(words, base) {
+    const maxLook = Math.min(words.length, base + SENTENCE_LOOKAHEAD);
+    for (let i = base; i < maxLook; i++) {
+      const w = words[i];
+      if (/[.!?]['"]?$/.test(w)) {
+        // Accept if this is the last word OR the next word starts with a capital
+        const nextWord = words[i + 1];
+        if (!nextWord || /^[A-Z"']/.test(nextWord)) {
+          return i + 1; // split after this word (exclusive)
+        }
+      }
+    }
+    return base; // no boundary found — fall back to hard cut
+  }
+
+  function flushTurn(endMs) {
+    if (!currentText.trim()) return;
+    const words = currentText.trim().split(/\s+/);
+    const topics = [...currentTopicSet];
+    // If the turn exceeds MAX_TURN_WORDS, split it into sub-chunks
+    // respecting sentence boundaries (Issue A fix).
+    let wordOffset = 0;
+    const spanMs = endMs - currentStartMs;
+    while (wordOffset < words.length) {
+      // Find a sentence boundary at or after MAX_TURN_WORDS from offset
+      const hardCut = Math.min(wordOffset + MAX_TURN_WORDS, words.length);
+      const splitAt = hardCut < words.length
+        ? findSentenceBoundary(words, hardCut)
+        : words.length;
+
+      const slice = words.slice(wordOffset, splitAt);
+      const sliceText = slice.join(' ');
+      const sliceStartMs = currentStartMs + Math.round(spanMs * (wordOffset / words.length));
+      const sliceEndMs   = currentStartMs + Math.round(spanMs * (splitAt / words.length));
+
+      turnChunks.push({
+        id: `${videoId}_turn_${turnIndex}`,
+        videoId,
+        chunkIndex: turnIndex,
+        text: sliceText,
+        startTime: formatTime(sliceStartMs),
+        endTime: formatTime(sliceEndMs),
+        startMs: sliceStartMs,
+        endMs: sliceEndMs,
+        topics,
+        speakersMentioned: currentSpeaker === 'unknown' ? [] : [currentSpeaker],
+        speakerKey: currentSpeaker,
+        wordCount: slice.length,
+      });
+      turnIndex++;
+      wordOffset = splitAt;
+    }
+  }
+
+  for (const seg of segments) {
+    const segSpeaker = detectPrimarySpeaker(seg.text);
+
+    if (segSpeaker !== 'unknown' && segSpeaker !== currentSpeaker) {
+      // Speaker boundary detected — flush current turn, start new one
+      flushTurn(seg.startMs);
+      currentSpeaker = segSpeaker;
+      currentText = seg.text;
+      currentStartMs = seg.startMs;
+      currentEndMs = seg.endMs;
+      currentTopicSet = new Set(seg.topics || []);
+    } else {
+      // Continue current turn
+      if (currentText === '') {
+        currentStartMs = seg.startMs;
+        if (segSpeaker !== 'unknown') currentSpeaker = segSpeaker;
+      }
+      currentText += (currentText ? ' ' : '') + seg.text;
+      currentEndMs = seg.endMs;
+      for (const t of (seg.topics || [])) currentTopicSet.add(t);
+    }
+  }
+
+  // Flush final turn
+  flushTurn(currentEndMs);
+
+  return turnChunks;
+}
+
+/**
+ * Format milliseconds as HH:MM:SS (local copy; process-captions.mjs has its own).
+ */
+function formatTime(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Secondary speaker-attribution pass.
+ *
+ * For each 'unknown' chunk, inspect the immediately preceding and following
+ * chunks WITHIN THE SAME EPISODE (videoId). If both neighbors share the same
+ * speakerKey, this chunk is most likely a continuation of that speaker's turn
+ * (cross-talk run-on, narration over their voice, intro snippet attributed
+ * back to them). We tag it `likely_<speaker>` and set sk_confidence='medium'.
+ *
+ * This represents ~60-70% probability — distinct from a direct alias hit
+ * (high confidence). It will not overwrite an existing high-confidence
+ * speakerKey. Downstream consumers can decide how to weight medium-confidence
+ * attributions (e.g. exclude from STRICT mode, include in non-strict).
+ *
+ * Mutates `chunks` in place. Returns count of upgraded chunks.
+ */
+function applySecondaryAttribution(chunks) {
+  let upgraded = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    if (c.speakerKey && c.speakerKey !== 'unknown') {
+      c.sk_confidence = 'high';
+      continue;
+    }
+    // Find previous in-episode chunk with a known speaker
+    let prev = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if (chunks[j].videoId !== c.videoId) break;
+      if (chunks[j].speakerKey && chunks[j].speakerKey !== 'unknown') {
+        prev = chunks[j];
+        break;
+      }
+    }
+    // Find next in-episode chunk with a known speaker
+    let next = null;
+    for (let j = i + 1; j < chunks.length; j++) {
+      if (chunks[j].videoId !== c.videoId) break;
+      if (chunks[j].speakerKey && chunks[j].speakerKey !== 'unknown') {
+        next = chunks[j];
+        break;
+      }
+    }
+    if (prev && next && prev.speakerKey === next.speakerKey) {
+      c.speakerKey = `likely_${prev.speakerKey}`;
+      c.sk_confidence = 'medium';
+      upgraded++;
+    } else {
+      c.sk_confidence = 'low';
+    }
+  }
+  return upgraded;
+}
+
 /**
  * Build the knowledge entries from transcripts.
- * Each entry is a chunk enriched with speaker/topic metadata for vector storage.
+ * Uses per-turn chunking as the primary path (single-speaker chunks).
+ * Falls back to longChunks (2-min windows) only if no chunks are available.
  */
 function buildKnowledgeEntries(transcripts) {
   const entries = [];
+  let turnTotal = 0;
+  let unknownTotal = 0;
+  let likelyTotal = 0;
 
   for (const transcript of transcripts) {
-    // Use long chunks (2-min windows) for richer context
-    const chunks = transcript.longChunks || transcript.chunks;
+    // Primary: per-turn chunks (new path)
+    const turnChunks = buildTurnChunks(transcript);
+
+    // Secondary attribution pass — only applies to turnChunks, which carry
+    // a per-chunk videoId already. Long-chunk fallback skips this enrichment.
+    if (turnChunks.length > 0) {
+      // turnChunks built by buildTurnChunks don't carry videoId on each item;
+      // attach it so the neighbor-walk respects episode boundaries.
+      for (const tc of turnChunks) {
+        if (!tc.videoId) tc.videoId = transcript.videoId;
+      }
+      const upgraded = applySecondaryAttribution(turnChunks);
+      likelyTotal += upgraded;
+    }
+
+    const chunks = turnChunks.length > 0 ? turnChunks : (transcript.longChunks || transcript.chunks);
 
     for (const chunk of chunks) {
+      const speakerKey = chunk.speakerKey || 'unknown';
+      if (turnChunks.length > 0) {
+        turnTotal++;
+        if (speakerKey === 'unknown') unknownTotal++;
+      }
       entries.push({
         id: chunk.id,
         content: chunk.text,
@@ -227,11 +500,22 @@ function buildKnowledgeEntries(transcripts) {
           duration: transcript.duration,
           topics: chunk.topics,
           speakersMentioned: chunk.speakersMentioned,
+          speakerKey,
+          sk_confidence: chunk.sk_confidence || (speakerKey === 'unknown' ? 'low' : 'high'),
           wordCount: chunk.wordCount,
-          youtubeUrl: `https://youtube.com/watch?v=${transcript.videoId}&t=${Math.floor(chunk.startMs / 1000)}`
+          youtubeUrl: `https://youtube.com/watch?v=${transcript.videoId}&t=${Math.floor((chunk.startMs || 0) / 1000)}`
         }
       });
     }
+  }
+
+  if (turnTotal > 0) {
+    const directLabeled = turnTotal - unknownTotal;
+    const directPct = ((directLabeled / turnTotal) * 100).toFixed(1);
+    const totalLabeled = directLabeled + likelyTotal;
+    const totalPct = ((totalLabeled / turnTotal) * 100).toFixed(1);
+    const remainingUnknown = unknownTotal - likelyTotal;
+    console.log(`  Per-turn chunker: ${turnTotal} turns, ${directLabeled} direct (${directPct}%), ${likelyTotal} likely_<x> (secondary pass), ${remainingUnknown} still unknown — total coverage ${totalPct}%`);
   }
 
   return entries;
@@ -409,13 +693,15 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
   const contentIndex = {};
   for (const entry of entries) {
     contentIndex[entry.id] = {
-      c: entry.content,                          // text content
-      v: entry.metadata.videoId,                  // video ID
-      t: entry.metadata.startTime || '00:00:00',  // timestamp
-      s: entry.metadata.startMs || 0,             // start ms
-      p: entry.metadata.topics || [],             // topics
-      m: entry.metadata.speakersMentioned || [],   // speakers mentioned
-      u: entry.metadata.youtubeUrl || ''           // youtube URL
+      c: entry.content,                              // text content
+      v: entry.metadata.videoId,                     // video ID
+      t: entry.metadata.startTime || '00:00:00',     // timestamp
+      s: entry.metadata.startMs || 0,                // start ms
+      p: entry.metadata.topics || [],                // topics
+      m: entry.metadata.speakersMentioned || [],     // speakers mentioned
+      sk: entry.metadata.speakerKey || 'unknown',    // primary speaker (per-turn)
+      skc: entry.metadata.sk_confidence || 'low',    // 'high'|'medium'|'low' attribution confidence
+      u: entry.metadata.youtubeUrl || ''             // youtube URL
     };
   }
 
@@ -426,6 +712,37 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
   writeFileSync(join(KB_DIR, 'content-index.json'), JSON.stringify(contentIndex));
   writeFileSync(join(WEB_DATA_DIR, 'content-index.json'), JSON.stringify(contentIndex));
   console.log(`Content index: ${Object.keys(contentIndex).length} entries (${(JSON.stringify(contentIndex).length / 1024 / 1024).toFixed(1)}MB)`);
+
+  // Build episode-meta.json: videoId → {title, episodeNumber}
+  // Joins episodes_metadata.json (title+date) with episode-dates.json (videoId+date).
+  // Written to web/public/data so the API can resolve episode titles in citations.
+  try {
+    const EPISODES_META_PATH = join(ROOT, 'data', 'episodes', 'episodes_metadata.json');
+    const EPISODE_DATES_PATH = join(WEB_DATA_DIR, 'episode-dates.json');
+    if (existsSync(EPISODES_META_PATH) && existsSync(EPISODE_DATES_PATH)) {
+      const metaList = JSON.parse(readFileSync(EPISODES_META_PATH, 'utf8'));
+      const datesMap = JSON.parse(readFileSync(EPISODE_DATES_PATH, 'utf8'));
+      const byDate = {};
+      for (const ep of metaList) {
+        if (ep.date && ep.title) byDate[ep.date] = ep.title;
+      }
+      const episodeMeta = {};
+      for (const [videoId, date] of Object.entries(datesMap)) {
+        const title = byDate[date];
+        if (title) {
+          const epNumMatch = title.match(/\bE(\d{3,})\b/);
+          episodeMeta[videoId] = {
+            title,
+            ...(epNumMatch ? { episodeNumber: parseInt(epNumMatch[1], 10) } : {})
+          };
+        }
+      }
+      writeFileSync(join(WEB_DATA_DIR, 'episode-meta.json'), JSON.stringify(episodeMeta));
+      console.log(`Episode metadata index: ${Object.keys(episodeMeta).length} entries → web/public/data/episode-meta.json`);
+    }
+  } catch (err) {
+    console.warn(`episode-meta.json generation failed (non-fatal): ${err.message}`);
+  }
 
   // Copy RVF to web/public/data if it was built
   if (useRvf) {
