@@ -405,54 +405,146 @@ function formatTime(ms) {
 /**
  * Secondary speaker-attribution pass.
  *
- * For each 'unknown' chunk, inspect the immediately preceding and following
- * chunks WITHIN THE SAME EPISODE (videoId). If both neighbors share the same
- * speakerKey, this chunk is most likely a continuation of that speaker's turn
- * (cross-talk run-on, narration over their voice, intro snippet attributed
- * back to them). We tag it `likely_<speaker>` and set sk_confidence='medium'.
+ * Relaxed fan-out heuristic (iter-4b):
  *
- * This represents ~60-70% probability — distinct from a direct alias hit
- * (high confidence). It will not overwrite an existing high-confidence
- * speakerKey. Downstream consumers can decide how to weight medium-confidence
- * attributions (e.g. exclude from STRICT mode, include in non-strict).
+ * For each 'unknown' chunk at position i in an episode:
+ *   - BEFORE anchor: nearest known-speaker chunk within ±3 turns (look back)
+ *     AND within 60 seconds before c.startMs.
+ *   - AFTER anchor: nearest known-speaker chunk within ±3 turns (look forward)
+ *     AND within 30 seconds after c.startMs.
  *
- * Mutates `chunks` in place. Returns count of upgraded chunks.
+ * Tier 1 — "medium" (both anchors, same speaker):
+ *   Both before AND after anchor exist AND share the same speakerKey.
+ *   → tag `likely_<speaker>`, sk_confidence='medium'.
+ *
+ * Tier 2 — "low-medium" (single anchor, tight window, no intervening speaker):
+ *   Only ONE anchor exists within ±2 turns AND ±20 seconds, AND no other
+ *   attributed chunk sits between that anchor and c.
+ *   → tag `likely_<speaker>`, sk_confidence='low-medium'.
+ *
+ * Cap: a chunk in the middle of a long unknown run (>= 2 unknown chunks on
+ * both sides within the walk window) stays unknown — propagation cap prevents
+ * a stale anchor 30 s away from polluting a run.
+ *
+ * Mutates `chunks` in place.
+ * Returns { medium, lowMedium } upgrade counts.
  */
 function applySecondaryAttribution(chunks) {
-  let upgraded = 0;
+  let mediumCount = 0;
+  let lowMediumCount = 0;
+
+  // Pre-compute per-chunk turn index within episode for O(1) distance checks.
+  // We rely on the chunk order already being episode-contiguous (guaranteed by
+  // buildTurnChunks which iterates one transcript at a time).
+  const episodeTurnIdx = new Map(); // chunk index → turn index within episode
+  let eTurn = 0;
+  let lastVid = null;
+  for (let i = 0; i < chunks.length; i++) {
+    if (chunks[i].videoId !== lastVid) { eTurn = 0; lastVid = chunks[i].videoId; }
+    episodeTurnIdx.set(i, eTurn++);
+  }
+
   for (let i = 0; i < chunks.length; i++) {
     const c = chunks[i];
     if (c.speakerKey && c.speakerKey !== 'unknown') {
       c.sk_confidence = 'high';
       continue;
     }
-    // Find previous in-episode chunk with a known speaker
-    let prev = null;
+
+    const cStart = c.startMs || 0;
+
+    // ── BEFORE anchor: look back up to 3 turns, ≤ 60 s before ──────────────
+    let before = null;
+    let beforeIdx = -1;
     for (let j = i - 1; j >= 0; j--) {
       if (chunks[j].videoId !== c.videoId) break;
-      if (chunks[j].speakerKey && chunks[j].speakerKey !== 'unknown') {
-        prev = chunks[j];
+      const turnDist = (episodeTurnIdx.get(i) - episodeTurnIdx.get(j));
+      if (turnDist > 3) break;
+      const timeDist = cStart - (chunks[j].startMs || 0);
+      if (timeDist > 60_000) break;
+      const sk = chunks[j].speakerKey;
+      if (sk && sk !== 'unknown' && !sk.startsWith('likely_')) {
+        before = chunks[j]; beforeIdx = j;
         break;
       }
     }
-    // Find next in-episode chunk with a known speaker
-    let next = null;
+
+    // ── AFTER anchor: look forward up to 3 turns, ≤ 30 s after ─────────────
+    let after = null;
+    let afterIdx = -1;
     for (let j = i + 1; j < chunks.length; j++) {
       if (chunks[j].videoId !== c.videoId) break;
-      if (chunks[j].speakerKey && chunks[j].speakerKey !== 'unknown') {
-        next = chunks[j];
+      const turnDist = (episodeTurnIdx.get(j) - episodeTurnIdx.get(i));
+      if (turnDist > 3) break;
+      const timeDist = (chunks[j].startMs || 0) - cStart;
+      if (timeDist > 30_000) break;
+      const sk = chunks[j].speakerKey;
+      if (sk && sk !== 'unknown' && !sk.startsWith('likely_')) {
+        after = chunks[j]; afterIdx = j;
         break;
       }
     }
-    if (prev && next && prev.speakerKey === next.speakerKey) {
-      c.speakerKey = `likely_${prev.speakerKey}`;
+
+    // ── Tier 1: both anchors, same speaker ───────────────────────────────────
+    if (before && after && before.speakerKey === after.speakerKey) {
+      c.speakerKey = `likely_${before.speakerKey}`;
       c.sk_confidence = 'medium';
-      upgraded++;
-    } else {
-      c.sk_confidence = 'low';
+      mediumCount++;
+      continue;
     }
+
+    // ── Tier 2: single tight anchor (±2 turns, ±20 s), no intervening hit ───
+    const tightBefore = (before &&
+      (episodeTurnIdx.get(i) - episodeTurnIdx.get(beforeIdx)) <= 2 &&
+      (cStart - (before.startMs || 0)) <= 20_000) ? before : null;
+
+    const tightAfter = (after &&
+      (episodeTurnIdx.get(afterIdx) - episodeTurnIdx.get(i)) <= 2 &&
+      ((after.startMs || 0) - cStart) <= 20_000) ? after : null;
+
+    const singleAnchor = tightBefore || tightAfter;
+    const anchorIdx = tightBefore ? beforeIdx : afterIdx;
+
+    if (singleAnchor) {
+      // Verify no OTHER attributed speaker sits between singleAnchor and c
+      const lo = Math.min(anchorIdx, i) + 1;
+      const hi = Math.max(anchorIdx, i);
+      let intervening = false;
+      for (let k = lo; k < hi; k++) {
+        const sk = chunks[k].speakerKey;
+        if (sk && sk !== 'unknown' && !sk.startsWith('likely_')) { intervening = true; break; }
+      }
+      if (!intervening) {
+        // Propagation cap: if the unknown run on BOTH sides spans ≥ 2 chunks
+        // before we'd reach any known anchor beyond the tight window, skip.
+        let unknownLeft = 0;
+        for (let k = i - 1; k >= 0 && chunks[k].videoId === c.videoId; k--) {
+          const sk = chunks[k].speakerKey;
+          if (!sk || sk === 'unknown' || sk.startsWith('likely_')) unknownLeft++;
+          else break;
+        }
+        let unknownRight = 0;
+        for (let k = i + 1; k < chunks.length && chunks[k].videoId === c.videoId; k++) {
+          const sk = chunks[k].speakerKey;
+          if (!sk || sk === 'unknown' || sk.startsWith('likely_')) unknownRight++;
+          else break;
+        }
+        if (unknownLeft >= 2 && unknownRight >= 2) {
+          // Middle of a long unknown run — leave as unknown
+          c.sk_confidence = 'low';
+          continue;
+        }
+        c.speakerKey = `likely_${singleAnchor.speakerKey}`;
+        c.sk_confidence = 'low-medium';
+        lowMediumCount++;
+        continue;
+      }
+    }
+
+    c.sk_confidence = 'low';
   }
-  return upgraded;
+
+  return { medium: mediumCount, lowMedium: lowMediumCount };
 }
 
 /**
@@ -464,7 +556,8 @@ function buildKnowledgeEntries(transcripts) {
   const entries = [];
   let turnTotal = 0;
   let unknownTotal = 0;
-  let likelyTotal = 0;
+  let mediumTotal = 0;
+  let lowMediumTotal = 0;
 
   for (const transcript of transcripts) {
     // Primary: per-turn chunks (new path)
@@ -478,8 +571,9 @@ function buildKnowledgeEntries(transcripts) {
       for (const tc of turnChunks) {
         if (!tc.videoId) tc.videoId = transcript.videoId;
       }
-      const upgraded = applySecondaryAttribution(turnChunks);
-      likelyTotal += upgraded;
+      const { medium, lowMedium } = applySecondaryAttribution(turnChunks);
+      mediumTotal += medium;
+      lowMediumTotal += lowMedium;
     }
 
     const chunks = turnChunks.length > 0 ? turnChunks : (transcript.longChunks || transcript.chunks);
@@ -511,11 +605,19 @@ function buildKnowledgeEntries(transcripts) {
 
   if (turnTotal > 0) {
     const directLabeled = turnTotal - unknownTotal;
-    const directPct = ((directLabeled / turnTotal) * 100).toFixed(1);
-    const totalLabeled = directLabeled + likelyTotal;
-    const totalPct = ((totalLabeled / turnTotal) * 100).toFixed(1);
+    const likelyTotal = mediumTotal + lowMediumTotal;
     const remainingUnknown = unknownTotal - likelyTotal;
-    console.log(`  Per-turn chunker: ${turnTotal} turns, ${directLabeled} direct (${directPct}%), ${likelyTotal} likely_<x> (secondary pass), ${remainingUnknown} still unknown — total coverage ${totalPct}%`);
+    const directPct   = ((directLabeled   / turnTotal) * 100).toFixed(1);
+    const mediumPct   = ((mediumTotal     / turnTotal) * 100).toFixed(1);
+    const lowMedPct   = ((lowMediumTotal  / turnTotal) * 100).toFixed(1);
+    const unknownPct  = ((remainingUnknown / turnTotal) * 100).toFixed(1);
+    const totalPct    = (((directLabeled + likelyTotal) / turnTotal) * 100).toFixed(1);
+    console.log(`  Speaker attribution breakdown (${turnTotal} turns):`);
+    console.log(`    direct      : ${directLabeled} (${directPct}%)`);
+    console.log(`    medium      : ${mediumTotal} (${mediumPct}%)  [both-neighbor match]`);
+    console.log(`    low-medium  : ${lowMediumTotal} (${lowMedPct}%)  [single-neighbor, tight window]`);
+    console.log(`    unknown     : ${remainingUnknown} (${unknownPct}%)`);
+    console.log(`    total cover : ${totalPct}%`);
   }
 
   return entries;

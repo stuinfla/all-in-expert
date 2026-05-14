@@ -157,6 +157,14 @@ else
     }
 fi
 
+# 11b. Warm response cache so first real user after deploy doesn't pay
+# full cold-start latency. Best-effort — cache-warm.mjs always exits 0,
+# and we additionally wrap with `|| log "WARN: ..."` so even a fatal
+# script crash can't fail the weekly pipeline.
+cd "$ROOT"
+log "Warming response cache..."
+node scripts/cache-warm.mjs >> "$LOG_FILE" 2>&1 || log "WARN: Cache warm partial"
+
 # 12. QA regression check — runs the 20-Q harness against prod, compares
 # vs data/qa/baseline.json, flags regressions in the log. Never blocks
 # the weekly pipeline; the qa-ci script exits 0 on infra issues and only

@@ -4,7 +4,9 @@
  * Rare terms get high IDF weight — so a segment mentioning "anthropic" scores
  * far above one mentioning "besties" even if both match the query.
  *
- * Output: idf.json — { term: idf_score } for all terms appearing in >=2 docs.
+ * Output 1: idf.json — { term: idf_score } for all terms appearing in >=2 docs.
+ * Output 2: doc-lengths.json — { [chunkId]: tokenCount, "__avgdl__": number }
+ *   Required for BM25-Okapi scoring in tfidfSearch (k1=1.5, b=0.75).
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
@@ -16,6 +18,8 @@ const ROOT = join(__dirname, '..');
 const CONTENT_INDEX = join(ROOT, 'web', 'public', 'data', 'content-index.json');
 const OUT_LOCAL = join(ROOT, 'data', 'kb', 'idf.json');
 const OUT_WEB = join(ROOT, 'web', 'public', 'data', 'idf.json');
+const OUT_DOC_LENGTHS_LOCAL = join(ROOT, 'data', 'kb', 'doc-lengths.json');
+const OUT_DOC_LENGTHS_WEB = join(ROOT, 'web', 'public', 'data', 'doc-lengths.json');
 
 function tokenize(text) {
   return text
@@ -33,12 +37,25 @@ function main() {
   console.log(`${N} documents`);
 
   const docFreq = {};
+  // Per-document token counts for BM25 avgdl computation
+  const docLengths = {};
+  let totalTokens = 0;
+
   for (const id of docIds) {
-    const tokens = new Set(tokenize(index[id].c));
-    for (const t of tokens) {
+    const tokens = tokenize(index[id].c);
+    docLengths[id] = tokens.length;
+    totalTokens += tokens.length;
+
+    const uniqueTokens = new Set(tokens);
+    for (const t of uniqueTokens) {
       docFreq[t] = (docFreq[t] || 0) + 1;
     }
   }
+
+  // Compute avgdl for BM25
+  const avgdl = totalTokens / N;
+  docLengths['__avgdl__'] = avgdl;
+  console.log(`avgdl = ${avgdl.toFixed(2)} tokens/chunk`);
 
   // Compute IDF for terms appearing in 2+ docs (ignore hapax legomena + stopwords)
   const idf = {};
@@ -73,8 +90,13 @@ function main() {
   writeFileSync(OUT_LOCAL, JSON.stringify(idf));
   writeFileSync(OUT_WEB, JSON.stringify(idf));
 
-  const sizeKB = (JSON.stringify(idf).length / 1024).toFixed(0);
-  console.log(`\nSaved idf.json (${sizeKB}KB)`);
+  writeFileSync(OUT_DOC_LENGTHS_LOCAL, JSON.stringify(docLengths));
+  writeFileSync(OUT_DOC_LENGTHS_WEB, JSON.stringify(docLengths));
+
+  const idfSizeKB = (JSON.stringify(idf).length / 1024).toFixed(0);
+  const dlSizeKB = (JSON.stringify(docLengths).length / 1024).toFixed(0);
+  console.log(`\nSaved idf.json (${idfSizeKB}KB)`);
+  console.log(`Saved doc-lengths.json (${dlSizeKB}KB, ${N} entries + __avgdl__=${avgdl.toFixed(2)})`);
 }
 
 main();

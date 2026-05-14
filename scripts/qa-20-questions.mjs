@@ -27,6 +27,13 @@ const API_URL = process.env.ALL_IN_API_URL || 'https://asktheallinexperts.vercel
 const OUT_DIR = join(ROOT, 'data', 'qa');
 if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
 
+// QA bypass token — when set, /api/ask skips the daily rate-limit counter
+// for this request (see web/src/lib/rate-limit.ts). Lets the harness run
+// against production without burning the 200/day user budget. Token value
+// is held in Vercel env as QA_BYPASS_TOKEN; export the same value in your
+// local shell (or .env) before running this script.
+const QA_BYPASS_TOKEN = process.env.QA_BYPASS_TOKEN || '';
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ─── 20 diverse test questions ────────────────────────────────
@@ -57,10 +64,14 @@ async function runQuery(q) {
   const body = { query: q.query };
   if (q.speaker) body.speaker = q.speaker;
   if (q.mode) body.mode = q.mode;
+  if (QA_BYPASS_TOKEN) body.qa_token = QA_BYPASS_TOKEN;
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (QA_BYPASS_TOKEN) headers['x-qa-token'] = QA_BYPASS_TOKEN;
 
   const res = await fetch(API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 

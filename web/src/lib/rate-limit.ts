@@ -1,5 +1,5 @@
 /**
- * Daily rate limiter for /api/ask — soft global cap of 25 synthesis calls
+ * Daily rate limiter for /api/ask — soft global cap of 200 synthesis calls
  * per UTC day. Resets at 00:00 UTC.
  *
  * Storage tiers:
@@ -11,15 +11,21 @@
  * Caveat: Vercel may scale to multiple concurrent function instances. Each
  * instance has its own in-memory counter; pi-brain persistence catches most
  * cross-instance drift but isn't atomic. In practice for a hobby-traffic
- * site this means the TRUE daily cap sits between 25 (single instance)
- * and 25×instance-count (peak burst). Upgrading to Upstash Redis with
+ * site this means the TRUE daily cap sits between 200 (single instance)
+ * and 200×instance-count (peak burst). Upgrading to Upstash Redis with
  * atomic INCR would make it exact.
+ *
+ * QA bypass: if a request supplies a `qa_token` (POST body, ?qa_token=
+ * query param, or `x-qa-token` header) that matches the server-side
+ * `QA_BYPASS_TOKEN` env var, the check short-circuits as bypassed=true
+ * and the counter is NOT incremented. Used by scripts/qa-ci.mjs and
+ * scripts/qa-20-questions.mjs so test runs don't burn the user budget.
  *
  * Cached responses (mem or pi-brain hit) do NOT count against the limit —
  * only fresh syntheses that actually invoke Claude.
  */
 
-const DAILY_LIMIT = 25;
+const DAILY_LIMIT = 200;
 const PI_BRAIN_BASE = 'https://pi.ruv.io/v1';
 const PI_BRAIN_KEY = process.env.PI_BRAIN_API_KEY || 'brain-ui';
 const PI_BRAIN_TIMEOUT_MS = 2500;
@@ -138,6 +144,33 @@ export interface RateLimitCheckResult {
   remaining: number;
   dayKey: string;
   resetsAt: string; // ISO of next UTC midnight
+  bypassed?: boolean; // true when QA token short-circuited the check
+}
+
+/**
+ * Constant-time token comparison so an attacker can't time-leak the secret.
+ * Returns false if either string is empty or lengths differ.
+ */
+function tokensMatch(a: string | undefined | null, b: string | undefined | null): boolean {
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/**
+ * True when the supplied token matches the server-side QA_BYPASS_TOKEN env.
+ * If QA_BYPASS_TOKEN is unset or empty the bypass is effectively disabled
+ * (any incoming token returns false). Exported so the route handler can
+ * decide whether to skip recordCall() too.
+ */
+export function isQaBypass(token: string | undefined | null): boolean {
+  const expected = process.env.QA_BYPASS_TOKEN;
+  if (!expected) return false;
+  return tokensMatch(token, expected);
 }
 
 function nextUtcMidnightISO(): string {
@@ -152,8 +185,25 @@ function nextUtcMidnightISO(): string {
  * Check whether a new paid synthesis call is allowed. Does NOT increment —
  * call `recordCall()` after the synthesis completes (or on a confirmed
  * non-cached path) to consume the budget.
+ *
+ * If `qaToken` matches `process.env.QA_BYPASS_TOKEN`, returns a synthetic
+ * "allowed + bypassed" result without consulting state. Callers should
+ * also skip `recordCall()` when `bypassed === true`.
  */
-export async function checkRateLimit(): Promise<RateLimitCheckResult> {
+export async function checkRateLimit(
+  qaToken?: string | null
+): Promise<RateLimitCheckResult> {
+  if (isQaBypass(qaToken)) {
+    return {
+      allowed: true,
+      count: 0,
+      limit: DAILY_LIMIT,
+      remaining: DAILY_LIMIT,
+      dayKey: currentDayKey(),
+      resetsAt: nextUtcMidnightISO(),
+      bypassed: true,
+    };
+  }
   const s = getOrInitState();
   await syncFromPiBrain(s);
   return {

@@ -1,0 +1,12 @@
+[
+  { "query": "what's the current state of the AI market", "mode": "analysis" },
+  { "query": "how is AI reshaping the global economy", "mode": "forecast" },
+  { "query": "will Anthropic hit 250B in revenue", "mode": "forecast" },
+  { "query": "is the AI market heading for a monopoly", "mode": "forecast" },
+  { "query": "should the FDA regulate AI like drugs", "mode": "analysis" },
+  { "query": "how do you trade the AI boom", "mode": "analysis" },
+  { "query": "chamath on AI capex spending", "mode": "analysis", "speaker": "chamath", "strict": true },
+  { "query": "sacks on free speech and tech regulation", "mode": "analysis", "speaker": "sacks", "strict": true },
+  { "query": "friedberg on AI risks and biology", "mode": "analysis", "speaker": "friedberg", "strict": true },
+  { "query": "calacanis on the venture market", "mode": "analysis", "speaker": "calacanis", "strict": true }
+]

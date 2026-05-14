@@ -433,3 +433,46 @@ Rules:
     clearTimeout(timer);
   }
 }
+
+// ─── Telemetry: appendVerifierStats ─────────────────────────────────────────
+//
+// Append a single JSON line per verifier invocation to data/qa/verifier-stats.jsonl
+// so we can prove in production that the verifier is firing and measure hedge rate
+// over time. Async + fail-silent — telemetry must never block or break a response.
+
+export interface VerifierStatsLogEntry {
+  query: string;
+  claimsTotal: number;
+  claimsUngrounded: number;
+  hedgesApplied: boolean;
+  verificationMs: number;
+}
+
+export async function appendVerifierStats(stats: VerifierStatsLogEntry): Promise<void> {
+  try {
+    // Node-only — guard against any edge-runtime importer.
+    const fs = await import('fs');
+    const path = await import('path');
+    // Walk up from cwd to find data/qa/. In `web/` runtime the QA dir lives
+    // one level up at ../data/qa/. We try both.
+    const candidates = [
+      path.join(process.cwd(), 'data', 'qa', 'verifier-stats.jsonl'),
+      path.join(process.cwd(), '..', 'data', 'qa', 'verifier-stats.jsonl'),
+    ];
+    const target = candidates.find((p) => fs.existsSync(path.dirname(p))) ?? candidates[0];
+    const line =
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        query: stats.query.slice(0, 80),
+        claimsTotal: stats.claimsTotal,
+        claimsUngrounded: stats.claimsUngrounded,
+        hedgesApplied: stats.hedgesApplied,
+        verificationMs: stats.verificationMs,
+      }) + '\n';
+    await fs.promises.appendFile(target, line, 'utf8').catch(() => {
+      /* fail-silent */
+    });
+  } catch {
+    /* fail-silent — telemetry must never break the response path */
+  }
+}

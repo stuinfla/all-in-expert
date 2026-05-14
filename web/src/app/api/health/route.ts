@@ -34,10 +34,17 @@ export async function GET() {
   const embeddingsBinPath = join(publicData, 'embeddings.bin');
   const rvfPath = join(publicData, 'all-in-expert.rvf');
 
-  // Walk up from cwd to locate data/qa/baseline.json. In `web/` runtime the
-  // QA baseline lives one level up at ../data/qa/baseline.json (repo root).
-  // We try both the bundled copy (if present) and the repo-root copy.
-  const qaCandidates = [
+  // Walk up from cwd to locate data/qa/{latest,baseline}.json. In `web/`
+  // runtime these live one level up at ../data/qa/ (repo root). We surface
+  // BOTH: `lastQaScore` returns latest if available, else baseline (so the
+  // health endpoint reflects fresh QA runs); `qaLatest` and `qaBaseline`
+  // expose the raw snapshots so operators can spot a divergence.
+  const qaLatestCandidates = [
+    join(process.cwd(), 'data', 'qa', 'latest.json'),
+    join(process.cwd(), '..', 'data', 'qa', 'latest.json'),
+    join(publicData, 'qa-latest.json'),
+  ];
+  const qaBaselineCandidates = [
     join(process.cwd(), 'data', 'qa', 'baseline.json'),
     join(process.cwd(), '..', 'data', 'qa', 'baseline.json'),
     join(publicData, 'qa-baseline.json'),
@@ -58,22 +65,42 @@ export async function GET() {
     }
   }
 
-  let lastQaScore: number | null = null;
-  let qaBaselineDate: string | null = null;
-  for (const p of qaCandidates) {
-    if (existsSync(p)) {
+  interface QaSnapshot {
+    overall: number;
+    createdAt: string | null;
+    source: 'latest' | 'baseline';
+    path: string;
+  }
+  function readQaSnapshot(
+    candidates: string[],
+    source: 'latest' | 'baseline'
+  ): QaSnapshot | null {
+    for (const p of candidates) {
+      if (!existsSync(p)) continue;
       try {
-        const baseline = JSON.parse(readFileSync(p, 'utf8'));
-        if (typeof baseline.overall === 'number') {
-          lastQaScore = baseline.overall;
-          qaBaselineDate = baseline.createdAt ?? null;
-          break;
+        const parsed = JSON.parse(readFileSync(p, 'utf8'));
+        if (typeof parsed.overall === 'number') {
+          return {
+            overall: parsed.overall,
+            createdAt: parsed.createdAt ?? null,
+            source,
+            path: p,
+          };
         }
       } catch {
         /* try next candidate */
       }
     }
+    return null;
   }
+  const qaLatest = readQaSnapshot(qaLatestCandidates, 'latest');
+  const qaBaseline = readQaSnapshot(qaBaselineCandidates, 'baseline');
+  // Prefer latest, fall back to baseline. `lastQaScore` keeps the same
+  // field name for backward compat; `qaScoreSource` tells you which it is.
+  const preferred = qaLatest ?? qaBaseline;
+  const lastQaScore: number | null = preferred?.overall ?? null;
+  const qaBaselineDate: string | null = preferred?.createdAt ?? null;
+  const qaScoreSource: 'latest' | 'baseline' | null = preferred?.source ?? null;
 
   const embeddingsBinExists = existsSync(embeddingsBinPath);
   const rvfExists = existsSync(rvfPath);
@@ -81,6 +108,58 @@ export async function GET() {
   // Asset sizes are useful for verifying the right bundle shipped.
   const embeddingsBinBytes = embeddingsBinExists ? statSync(embeddingsBinPath).size : 0;
   const rvfBytes = rvfExists ? statSync(rvfPath).size : 0;
+
+  // Aggregate verifier telemetry from data/qa/verifier-stats.jsonl. Tail-read
+  // the last 100 lines so we don't load an arbitrarily large log into memory.
+  // Surfacing this proves the post-generation verifier (ADR-027) is firing
+  // and gives us a live hedge-rate measurement.
+  const verifierStatsCandidates = [
+    join(process.cwd(), 'data', 'qa', 'verifier-stats.jsonl'),
+    join(process.cwd(), '..', 'data', 'qa', 'verifier-stats.jsonl'),
+  ];
+  let verifierStats: {
+    last100: { total: number; hedgeRate: number; avgVerificationMs: number; avgUngrounded: number };
+  } = {
+    last100: { total: 0, hedgeRate: 0, avgVerificationMs: 0, avgUngrounded: 0 },
+  };
+  for (const p of verifierStatsCandidates) {
+    if (!existsSync(p)) continue;
+    try {
+      const raw = readFileSync(p, 'utf8');
+      const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+      const tail = lines.slice(-100);
+      const parsed = tail
+        .map((l) => {
+          try {
+            return JSON.parse(l) as {
+              claimsUngrounded?: number;
+              hedgesApplied?: boolean;
+              verificationMs?: number;
+            };
+          } catch {
+            return null;
+          }
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+      const total = parsed.length;
+      if (total > 0) {
+        const hedged = parsed.filter((r) => r.hedgesApplied === true).length;
+        const sumMs = parsed.reduce((s, r) => s + (typeof r.verificationMs === 'number' ? r.verificationMs : 0), 0);
+        const sumUng = parsed.reduce((s, r) => s + (typeof r.claimsUngrounded === 'number' ? r.claimsUngrounded : 0), 0);
+        verifierStats = {
+          last100: {
+            total,
+            hedgeRate: Math.round((hedged / total) * 1000) / 1000,
+            avgVerificationMs: Math.round(sumMs / total),
+            avgUngrounded: Math.round((sumUng / total) * 100) / 100,
+          },
+        };
+      }
+      break;
+    } catch {
+      /* try next candidate */
+    }
+  }
 
   const uptimeSec = Math.floor((Date.now() - PROCESS_START_MS) / 1000);
 
@@ -100,6 +179,10 @@ export async function GET() {
       rvfBytes,
       lastQaScore,
       qaBaselineDate,
+      qaScoreSource,
+      qaLatest,
+      qaBaseline,
+      verifierStats,
       uptime: `${uptimeSec}`,
       now: new Date().toISOString(),
     },

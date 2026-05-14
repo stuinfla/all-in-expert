@@ -14,6 +14,14 @@
  * Bootstraps cleanly: if ANTHROPIC_API_KEY is missing or the API URL is
  * unreachable, exits 0 with a [QA-CI] WARN line — never blocks the weekly
  * pipeline on transient infra issues. Real regressions exit 1.
+ *
+ * Rate-limit bypass: this script spawns qa-20-questions.mjs with
+ * `env: process.env`, so any QA_BYPASS_TOKEN exported in the parent shell
+ * is inherited by the child and forwarded to /api/ask as `x-qa-token` /
+ * `qa_token`. The matching token lives in Vercel env as QA_BYPASS_TOKEN
+ * (production). Locally, export it before running:
+ *   export QA_BYPASS_TOKEN=<uuid-from-vercel-env>
+ * Without it, harness runs count against the 200/day user budget.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';

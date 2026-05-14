@@ -1,0 +1,501 @@
+{
+  "overall": 83.8,
+  "harnessAverage": 79.3,
+  "runDate": "2026-05-14",
+  "questionsRun": 20,
+  "rubric10dim": {
+    "corpus": {
+      "weight": 8,
+      "score": 78
+    },
+    "retrieval": {
+      "weight": 12,
+      "score": 84
+    },
+    "speaker": {
+      "weight": 18,
+      "score": 80
+    },
+    "synthesis": {
+      "weight": 13,
+      "score": 72
+    },
+    "eval": {
+      "weight": 8,
+      "score": 92
+    },
+    "production": {
+      "weight": 10,
+      "score": 90
+    },
+    "ux": {
+      "weight": 8,
+      "score": 92
+    },
+    "freshness": {
+      "weight": 7,
+      "score": 85
+    },
+    "architectural": {
+      "weight": 10,
+      "score": 86
+    },
+    "legal": {
+      "weight": 6,
+      "score": 90
+    }
+  },
+  "progression": [
+    72,
+    73,
+    81,
+    82,
+    85,
+    83.8
+  ],
+  "verifierEffectiveness": {
+    "requestsWithVerifierBlock": 20,
+    "requestsWithUngroundedClaims": 17,
+    "requestsHedged": 17,
+    "totalGroundedClaims": 84,
+    "totalInferredClaims": 30,
+    "totalUngroundedClaims": 88,
+    "internalGroundedRate": 0.416,
+    "avgVerificationMs": 6386
+  },
+  "graderClaims": {
+    "totalVerified": 93,
+    "totalUnverified": 78,
+    "verifiedShare": 0.544
+  },
+  "perDim5": {
+    "voice": 90.7,
+    "grounding": 74.1,
+    "citations": 66.2,
+    "recency": 86.5,
+    "usefulness": 81.4
+  },
+  "questions": [
+    {
+      "id": "q01",
+      "category": "Markets",
+      "query": "Whether Anthropic is doing a good job these days",
+      "overall": 80,
+      "voice": 88,
+      "grounding": 75,
+      "citations": 70,
+      "recency": 85,
+      "usefulness": 82,
+      "verifier": {
+        "grounded": 3,
+        "inferred": 0,
+        "ungrounded": 7,
+        "hedged": true,
+        "verificationMs": 7994
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - several substantive claims have [N] markers pointing to citations that don't clearly support the specific assertions made"
+    },
+    {
+      "id": "q02",
+      "category": "Macro",
+      "query": "What do the besties think about the US national debt crisis?",
+      "overall": 83,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 85,
+      "usefulness": 88,
+      "verifier": {
+        "grounded": 1,
+        "inferred": 3,
+        "ungrounded": 6,
+        "hedged": true,
+        "verificationMs": 7829
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - claims need tighter alignment with actual retrieved content"
+    },
+    {
+      "id": "q03",
+      "category": "Politics",
+      "query": "Should the US regulate AI companies?",
+      "overall": 80,
+      "voice": 88,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 82,
+      "usefulness": 85,
+      "verifier": {
+        "grounded": 3,
+        "inferred": 1,
+        "ungrounded": 11,
+        "hedged": true,
+        "verificationMs": 7732
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Poor citation discipline - many specific regulatory arguments lack supporting evidence from transcripts"
+    },
+    {
+      "id": "q04",
+      "category": "Crypto",
+      "query": "What does Sacks think about crypto regulation right now?",
+      "overall": 42,
+      "voice": 92,
+      "grounding": 25,
+      "citations": 15,
+      "recency": 95,
+      "usefulness": 30,
+      "verifier": {
+        "grounded": 0,
+        "inferred": 3,
+        "ungrounded": 3,
+        "hedged": true,
+        "verificationMs": 5668
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Complete fabrication of crypto regulation conversation - citations don't support the detailed regulatory framework discussion presented"
+    },
+    {
+      "id": "q05",
+      "category": "Forecast",
+      "query": "Will Bitcoin hit 200k by end of 2026?",
+      "overall": 88,
+      "voice": 85,
+      "grounding": 95,
+      "citations": 90,
+      "recency": 80,
+      "usefulness": 92,
+      "verifier": {
+        "grounded": 13,
+        "inferred": 0,
+        "ungrounded": 0,
+        "hedged": false,
+        "verificationMs": 3930
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Too conservative - should leverage real-world context about Sacks as Crypto Czar and Chamath's Bitcoin bullishness to provide some useful synthesis"
+    },
+    {
+      "id": "q06",
+      "category": "Science",
+      "query": "What does Friedberg think about nuclear energy?",
+      "overall": 79,
+      "voice": 88,
+      "grounding": 75,
+      "citations": 70,
+      "recency": 85,
+      "usefulness": 80,
+      "verifier": {
+        "grounded": 5,
+        "inferred": 2,
+        "ungrounded": 3,
+        "hedged": true,
+        "verificationMs": 6408
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Missing citation markers for key factual claims and weak connection between some citations and attributed statements"
+    },
+    {
+      "id": "q07",
+      "category": "Tariffs",
+      "query": "Are tariffs good or bad for the US economy?",
+      "overall": 89,
+      "voice": 92,
+      "grounding": 88,
+      "citations": 95,
+      "recency": 85,
+      "usefulness": 90,
+      "verifier": {
+        "grounded": 2,
+        "inferred": 1,
+        "ungrounded": 7,
+        "hedged": true,
+        "verificationMs": 6556
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Minor grounding gaps on specific economic theory claims that aren't directly supported by citations"
+    },
+    {
+      "id": "q08",
+      "category": "Tech",
+      "query": "Is OpenAI overvalued at current levels?",
+      "overall": 89,
+      "voice": 92,
+      "grounding": 88,
+      "citations": 85,
+      "recency": 95,
+      "usefulness": 90,
+      "verifier": {
+        "grounded": 9,
+        "inferred": 1,
+        "ungrounded": 6,
+        "hedged": true,
+        "verificationMs": 7782
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - need to ensure specific claims about compute commitments and IPO investor sentiment are better matched to supporting evidence"
+    },
+    {
+      "id": "q09",
+      "category": "Chamath",
+      "query": "What is Chamath's current macro view?",
+      "overall": 82,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 88,
+      "usefulness": 85,
+      "verifier": {
+        "grounded": 5,
+        "inferred": 0,
+        "ungrounded": 5,
+        "hedged": true,
+        "verificationMs": 6162
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - specific financial claims about OpenAI and Anthropic aren't supported by the actual retrieved segments"
+    },
+    {
+      "id": "q10",
+      "category": "AI",
+      "query": "Will AI replace software engineers in five years?",
+      "overall": 83,
+      "voice": 92,
+      "grounding": 78,
+      "citations": 65,
+      "recency": 88,
+      "usefulness": 85,
+      "verifier": {
+        "grounded": 3,
+        "inferred": 2,
+        "ungrounded": 3,
+        "hedged": true,
+        "verificationMs": 6221
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Severe under-citation - many groundable claims lack [N] markers linking to supporting segments"
+    },
+    {
+      "id": "q11",
+      "category": "Politics",
+      "query": "What do the besties think about DOGE and government efficiency?",
+      "overall": 82,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 70,
+      "recency": 85,
+      "usefulness": 88,
+      "verifier": {
+        "grounded": 7,
+        "inferred": 2,
+        "ungrounded": 2,
+        "hedged": true,
+        "verificationMs": 7341
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - several [N] markers point to segments that don't clearly support the specific claims being made"
+    },
+    {
+      "id": "q12",
+      "category": "Markets",
+      "query": "Is there an AI bubble forming?",
+      "overall": 81,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 88,
+      "usefulness": 85,
+      "verifier": {
+        "grounded": 4,
+        "inferred": 5,
+        "ungrounded": 0,
+        "hedged": false,
+        "verificationMs": 2865
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - multiple [N] markers point to segments that don't actually support the specific claims being made"
+    },
+    {
+      "id": "q13",
+      "category": "Guest",
+      "query": "What does Brad Gerstner think about AI infrastructure spending?",
+      "overall": 89,
+      "voice": 92,
+      "grounding": 88,
+      "citations": 85,
+      "recency": 90,
+      "usefulness": 91,
+      "verifier": {
+        "grounded": 8,
+        "inferred": 0,
+        "ungrounded": 2,
+        "hedged": true,
+        "verificationMs": 5986
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Better citation matching - some claims are grounded in citations but tagged to wrong speakers, and SpaceX IPO claim needs verification"
+    },
+    {
+      "id": "q14",
+      "category": "Geopolitics",
+      "query": "How should the US handle China on trade and tech?",
+      "overall": 81,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 88,
+      "usefulness": 85,
+      "verifier": {
+        "grounded": 1,
+        "inferred": 2,
+        "ungrounded": 0,
+        "hedged": false,
+        "verificationMs": 1356
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - several [N] markers point to segments that don't actually support the specific claims made"
+    },
+    {
+      "id": "q15",
+      "category": "Startups",
+      "query": "What is Jason's advice to early-stage founders right now?",
+      "overall": 89,
+      "voice": 92,
+      "grounding": 88,
+      "citations": 85,
+      "recency": 90,
+      "usefulness": 90,
+      "verifier": {
+        "grounded": 5,
+        "inferred": 2,
+        "ungrounded": 3,
+        "hedged": true,
+        "verificationMs": 6214
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - need to ensure [N] markers point to segments that directly support the attributed claims, not just related topics"
+    },
+    {
+      "id": "q16",
+      "category": "Energy",
+      "query": "What is the future of nuclear power in America?",
+      "overall": 80,
+      "voice": 88,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 92,
+      "usefulness": 82,
+      "verifier": {
+        "grounded": 0,
+        "inferred": 2,
+        "ungrounded": 7,
+        "hedged": true,
+        "verificationMs": 6871
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - using [3] to support nuclear-specific claims when it's about general political gamesmanship"
+    },
+    {
+      "id": "q17",
+      "category": "Forecast",
+      "query": "Will there be a recession in 2026?",
+      "overall": 84,
+      "voice": 88,
+      "grounding": 82,
+      "citations": 85,
+      "recency": 75,
+      "usefulness": 85,
+      "verifier": {
+        "grounded": 8,
+        "inferred": 0,
+        "ungrounded": 6,
+        "hedged": true,
+        "verificationMs": 7849
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Future-tense framing creates temporal confusion - should be present-tense analysis of 2026 prospects"
+    },
+    {
+      "id": "q18",
+      "category": "Immigration",
+      "query": "What do the besties think about H-1B visas?",
+      "overall": 81,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 65,
+      "recency": 85,
+      "usefulness": 88,
+      "verifier": {
+        "grounded": 1,
+        "inferred": 2,
+        "ungrounded": 6,
+        "hedged": true,
+        "verificationMs": 6916
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Citation accuracy - the [10] and [12] markers point to brief fragments that don't contain the specific details claimed, creating false grounding"
+    },
+    {
+      "id": "q19",
+      "category": "Health",
+      "query": "What does Friedberg think about GLP-1 drugs and longevity?",
+      "overall": 48,
+      "voice": 92,
+      "grounding": 25,
+      "citations": 15,
+      "recency": 85,
+      "usefulness": 45,
+      "verifier": {
+        "grounded": 4,
+        "inferred": 0,
+        "ungrounded": 4,
+        "hedged": true,
+        "verificationMs": 7528
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Severe content fabrication - almost entire GLP-1 discussion is invented despite only minimal supporting material in citations"
+    },
+    {
+      "id": "q20",
+      "category": "Media",
+      "query": "What is Sacks's view on media bias and censorship?",
+      "overall": 77,
+      "voice": 92,
+      "grounding": 75,
+      "citations": 40,
+      "recency": 85,
+      "usefulness": 82,
+      "verifier": {
+        "grounded": 2,
+        "inferred": 2,
+        "ungrounded": 7,
+        "hedged": true,
+        "verificationMs": 8506
+      },
+      "searchMode": "hybrid",
+      "strictMode": false,
+      "key_issue": "Major fabrication of claims not supported by citations - the retrieved segments contain almost no content about media bias/censorship, yet the response presents detailed positions as if well-sourced"
+    }
+  ],
+  "notes": "See data/qa/qa-run-2026-05-14.json for raw responses. Health/perf serverless telemetry counters showed 0 because they live in /tmp on Vercel and reset on cold-start; verifier IS running per-request (20/20 verification blocks). BM25 deployed correctly (doc-lengths.json 786KB). Speaker-locked queries got 6-7/12 target-speaker citations on retrieval but synthesis still fabricates topic-specific content on weak-coverage topics (q04 crypto Sacks, q19 GLP-1)."
+}

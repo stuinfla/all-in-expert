@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cache-warm": "node ../scripts/cache-warm.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

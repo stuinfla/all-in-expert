@@ -10,9 +10,10 @@ const nextConfig: NextConfig = {
     "onnxruntime-node",
   ],
 
-  // Turbopack workspace root — silences the warning
+  // Turbopack workspace root — set to repo root (one level up from web/) so
+  // the web/data -> ../data symlink resolves within the declared root.
   turbopack: {
-    root: __dirname,
+    root: require('path').resolve(__dirname, '..'),
   },
 };
 

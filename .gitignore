@@ -40,3 +40,20 @@ data/captions/
 data/transcripts/
 data/kb/
 data/profiles/
+
+# Runtime DBs (regenerated; mid-session bytes)
+*.rvf
+*.rvf.lock
+*.db
+agentdb.rvf*
+ruvector.db
+
+# Misparsed-flag shell artifacts (do not commit)
+--selector
+--full-page
+
+# QA bypass token / personal envs (never commit)
+.env
+.env.production
+.env.local
+.dev.vars

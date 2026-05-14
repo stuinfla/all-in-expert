@@ -350,6 +350,16 @@ export default function Home() {
     strictMode?: boolean;
     dataFreshness?: { newestEpisodeDate: string | null; totalEpisodes: number; totalChunks: number } | null;
   }>({});
+  // Post-gen claim verifier output. Hidden when the API response omits the
+  // `verification` block (older cached responses pre-verifier-rollout).
+  const [verification, setVerification] = useState<{
+    claimsTotal: number;
+    claimsGrounded: number;
+    claimsInferred: number;
+    claimsUngrounded: number;
+    hedgesApplied: boolean;
+    verificationMs: number;
+  } | null>(null);
   const [disclaimer, setDisclaimer] = useState<string>("");
   const [timing, setTiming] = useState<{
     retrieveMs: number;
@@ -491,6 +501,7 @@ export default function Home() {
     setReport("");
     setCitations([]);
     setDisclaimer("");
+    setVerification(null);
     setLoadingPhrase(0);
 
     try {
@@ -583,6 +594,9 @@ export default function Home() {
                 if (evt.budget) setBudget(evt.budget);
                 if (evt.timing) setTiming(evt.timing);
                 if (evt.meta?.copyright) setCopyright(evt.meta.copyright);
+                // Post-gen claim verifier block. Older cached responses omit
+                // this field — leave verification null so the badge hides.
+                if (evt.verification) setVerification(evt.verification);
                 setStreaming(false);
               } else if (evt.type === "error") {
                 setError(evt.error || "Stream interrupted");
@@ -611,6 +625,9 @@ export default function Home() {
       if (data.budget) setBudget(data.budget);
       if (data.timing) setTiming(data.timing);
       if (data.meta?.copyright) setCopyright(data.meta.copyright);
+      // Older cached responses omit `verification` — leave state null so the
+      // FACT-CHECK block hides silently.
+      if (data.verification) setVerification(data.verification);
     } catch {
       setError("Unable to reach the archive.");
     } finally {
@@ -639,6 +656,7 @@ export default function Home() {
     setError("");
     setTiming(null);
     setCopyright("");
+    setVerification(null);
     setShowRetrievalExplain(false);
   }
 
@@ -1153,6 +1171,85 @@ export default function Home() {
               </div>
             )}
 
+            {/* ─── FACT-CHECK badge (post-gen claim verifier) ──────
+                Renders only when the API response includes a
+                `verification` block. Older cached responses without
+                the verifier output hide this silently. When hedges
+                were applied to ungrounded claims we shift the border
+                to amber and append a short explainer line. */}
+            {verification && (
+              <div
+                className={`mt-6 border bg-[var(--bg-card)] p-4 ${
+                  verification.hedgesApplied
+                    ? "border-amber-500/60"
+                    : "border-[var(--gold-rule)]"
+                }`}
+              >
+                <div
+                  className={`eyebrow ${
+                    verification.hedgesApplied ? "text-amber-400" : ""
+                  }`}
+                >
+                  § Fact-check
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[11px] tracking-wider uppercase">
+                  <span
+                    className="text-[var(--ink)] cursor-help"
+                    title="GROUNDED — Appears verbatim or near-verbatim in cited segments"
+                  >
+                    <span className="text-emerald-400">✓</span>{" "}
+                    {verification.claimsGrounded} grounded
+                  </span>
+                  <span className="text-[var(--ink-mute)]">·</span>
+                  <span
+                    className="text-[var(--ink)] cursor-help"
+                    title="INFERRED — Reasonable paraphrase of citation content"
+                  >
+                    <span className="text-[var(--gold)]">◐</span>{" "}
+                    {verification.claimsInferred} inferred
+                  </span>
+                  <span className="text-[var(--ink-mute)]">·</span>
+                  <span
+                    className="text-[var(--ink)] cursor-help"
+                    title="UNGROUNDED — Not found in citations — softened to hedge in final output"
+                  >
+                    <span
+                      className={
+                        verification.claimsUngrounded > 0
+                          ? "text-amber-400"
+                          : "text-[var(--ink-mute)]"
+                      }
+                    >
+                      ⊗
+                    </span>{" "}
+                    {verification.claimsUngrounded} ungrounded
+                  </span>
+                </div>
+                <div className="mt-2 font-mono text-[10px] tracking-wider uppercase text-[var(--ink-mute)]">
+                  Hedges applied:{" "}
+                  <span
+                    className={
+                      verification.hedgesApplied
+                        ? "text-amber-400"
+                        : "text-[var(--ink)]"
+                    }
+                  >
+                    {verification.hedgesApplied ? "Yes" : "No"}
+                  </span>
+                  {" · "}Verification: {verification.verificationMs}ms
+                  {" · "}
+                  {verification.claimsTotal} claim
+                  {verification.claimsTotal === 1 ? "" : "s"} checked
+                </div>
+                {verification.hedgesApplied && (
+                  <div className="mt-3 text-sm text-[var(--ink-dim)] leading-relaxed italic">
+                    Some specific claims were softened to match what the
+                    transcripts directly support.
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ─── Why did you get this answer? ─────────────────── */}
             {citations.length > 0 && (
               <div className="mt-5">
@@ -1560,7 +1657,15 @@ export default function Home() {
 
           <div className="mt-6 pt-4 border-t border-[var(--border)] flex items-center justify-between font-mono text-[10px] text-[var(--ink-faint)] tracking-widest uppercase flex-wrap gap-2">
             <div>Ask the All-In Experts · Vol. I · MMXXVI</div>
-            <div>© {new Date().getFullYear()} IsoVision AI</div>
+            <div className="flex items-center gap-4">
+              <Link
+                href="/legal"
+                className="text-[var(--ink-mute)] hover:text-[var(--gold)] transition"
+              >
+                Takedown / Legal →
+              </Link>
+              <span>© {new Date().getFullYear()} IsoVision AI</span>
+            </div>
           </div>
         </div>
       </footer>

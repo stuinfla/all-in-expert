@@ -6,8 +6,9 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { cacheLookupMem, cacheLookupPiBrain, cacheStore, CachedResponse } from '@/lib/pi-brain';
 import { rerank } from '@/lib/rerank';
-import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge } from '@/lib/validate-citations';
-import { checkRateLimit, recordCall } from '@/lib/rate-limit';
+import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, appendVerifierStats } from '@/lib/validate-citations';
+import { checkRateLimit, recordCall, isQaBypass } from '@/lib/rate-limit';
+import { appendPerfStats } from '@/lib/perf-stats';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -158,6 +159,20 @@ function getIdf(): Record<string, number> {
   }
   idfCache = JSON.parse(readFileSync(idfPath, 'utf8'));
   return idfCache!;
+}
+
+// BM25 doc-lengths cache — { [chunkId]: tokenCount, "__avgdl__": number }
+// Built by build-idf.mjs alongside idf.json.
+let docLengthsCache: Record<string, number> | null = null;
+function getDocLengths(): Record<string, number> {
+  if (docLengthsCache) return docLengthsCache;
+  const dlPath = join(DATA_DIR, 'doc-lengths.json');
+  if (!existsSync(dlPath)) {
+    docLengthsCache = {};
+    return docLengthsCache;
+  }
+  docLengthsCache = JSON.parse(readFileSync(dlPath, 'utf8'));
+  return docLengthsCache!;
 }
 
 /**
@@ -512,9 +527,15 @@ async function semanticSearch(query: string, limit = 30, speakerFilter?: string 
   return { results: [] as Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>, mode: 'semantic' as const };
 }
 
-// ─── TF-IDF keyword search (standalone) ──────────────────────────────────────
+// ─── BM25-Okapi sparse search (function name kept for backward compat) ────────
 /**
- * BM25-flavored TF-IDF search over the full content index.
+ * BM25-Okapi (k1=1.5, b=0.75) sparse retrieval over the full content index.
+ * Replaces prior TF-IDF — BM25 saturates term frequency and normalises for chunk
+ * length, giving materially better idiom matching for podcast catchphrases
+ * ("Best episode ever", "Science Corner", etc.) than raw TF-IDF.
+ *
+ * score(D,q) = sum_qi[ IDF(qi) * f(qi,D)*(k1+1) / (f(qi,D) + k1*(1-b+b*|D|/avgdl)) ]
+ *
  * Separated from semanticSearch so hybridSearch() can run both in parallel.
  * Returns results sorted by distance (lower = better), same shape as semantic results.
  */
@@ -525,14 +546,23 @@ async function tfidfSearch(
 ): Promise<Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>> {
   const index = await getContentIndex();
 
-  // Tokenize query — keep everything of length 3+
+  // BM25 hyperparameters (Okapi standard)
+  const K1 = 1.5;
+  const B  = 0.75;
+
+  // Load IDF + doc-lengths (lazy-cached)
+  const idf = getIdf();
+  const docLengths = getDocLengths();
+  const avgdl = (docLengths['__avgdl__'] as number) || 141.53; // fallback from build run
+
+  // Tokenize query — same rules as build-idf.mjs (>2 chars, <30 chars)
   const queryTokens = query
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((w) => w.length >= 3);
+    .filter((w) => w.length > 2 && w.length < 30);
 
-  // Stopwords — no signal for retrieval
+  // Stopwords — no retrieval signal
   const stopWords = new Set([
     'what', 'would', 'will', 'about', 'think', 'they', 'this', 'that', 'from',
     'have', 'been', 'should', 'could', 'does', 'with', 'going', 'their', 'then',
@@ -545,8 +575,7 @@ async function tfidfSearch(
     'bestie', 'besties', 'show',
   ]);
 
-  const idf = getIdf();
-  type QueryTerm = { term: string; weight: number; primary: boolean };
+  type QueryTerm = { term: string; idfScore: number; primary: boolean };
   const queryTerms: QueryTerm[] = [];
   const seenTerms = new Set<string>();
 
@@ -554,14 +583,16 @@ async function tfidfSearch(
     if (seenTerms.has(tok)) continue;
     seenTerms.add(tok);
     if (stopWords.has(tok)) continue;
-    const termIdf = idf[tok] ?? 5.5;
-    queryTerms.push({ term: tok, weight: termIdf, primary: termIdf > 2.5 });
+    const termIdf = idf[tok] ?? 5.5; // unknown terms treated as rare
+    queryTerms.push({ term: tok, idfScore: termIdf, primary: termIdf > 2.5 });
   }
 
+  if (queryTerms.length === 0) return [];
+
   const primaryTerms = queryTerms.filter((t) => t.primary);
-  const maxTheoreticalScore = queryTerms.reduce((s, t) => s + t.weight * 3, 0) || 1;
 
   const scored: Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }> = [];
+
   for (const [id, entry] of Object.entries(index)) {
     if (speakerFilter) {
       const matchesSk = entry.sk && entry.sk !== 'unknown' && entry.sk === speakerFilter;
@@ -571,38 +602,41 @@ async function tfidfSearch(
 
     const content = entry.c.toLowerCase();
 
+    // Fast pre-filter: at least one primary term must appear literally in the chunk
     if (primaryTerms.length > 0) {
       const hasPrimary = primaryTerms.some((pt) => content.includes(pt.term));
       if (!hasPrimary) continue;
     }
 
-    let score = 0;
-    let matchedPrimary = 0;
+    // BM25 document length — fall back to avgdl when not in doc-lengths.json
+    const dl = (docLengths[id] as number) || avgdl;
+    const lenNorm = 1 - B + B * (dl / avgdl);
+
+    let bm25Score = 0;
     for (const qt of queryTerms) {
-      let count = 0;
-      let idx_ = content.indexOf(qt.term);
-      while (idx_ !== -1) {
-        const before = idx_ === 0 ? ' ' : content[idx_ - 1];
-        const after = content[idx_ + qt.term.length] || ' ';
+      // Count whole-word occurrences of qt.term in content
+      let f = 0;
+      let pos = content.indexOf(qt.term);
+      while (pos !== -1) {
+        const before = pos === 0 ? ' ' : content[pos - 1];
+        const after  = content[pos + qt.term.length] || ' ';
         if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) {
-          count++;
+          f++;
         }
-        idx_ = content.indexOf(qt.term, idx_ + qt.term.length);
+        pos = content.indexOf(qt.term, pos + qt.term.length);
       }
-      if (count > 0) {
-        const tf = 1 + Math.log(count);
-        score += tf * qt.weight;
-        if (qt.primary) matchedPrimary++;
-      }
+      if (f === 0) continue;
+
+      // BM25 term contribution
+      const numerator   = f * (K1 + 1);
+      const denominator = f + K1 * lenNorm;
+      bm25Score += qt.idfScore * (numerator / denominator);
     }
 
-    if (primaryTerms.length > 1) {
-      const coverage = matchedPrimary / primaryTerms.length;
-      score *= 1 + coverage * 0.5;
-    }
-
-    if (score > 0) {
-      const normalized = Math.min(1, score / (maxTheoreticalScore * 0.5));
+    if (bm25Score > 0) {
+      // Normalise to [0,1]: soft ceiling = sum of per-term max contribution (idf*(k1+1))
+      const softCeil = queryTerms.reduce((s, t) => s + t.idfScore * (K1 + 1), 0) || 1;
+      const normalized = Math.min(1, bm25Score / softCeil);
       const rawDistance = 1 - normalized;
       const rec = recencyWeight(entry.v);
       scored.push({ id, entry, rawDistance, distance: rawDistance / rec });
@@ -892,7 +926,17 @@ function sec(ms: number) {
 export async function POST(req: NextRequest) {
   const reqStart = Date.now();
   try {
-    const { query, speaker, mode, strictSpeaker } = await req.json();
+    const body = await req.json();
+    const { query, speaker, mode, strictSpeaker } = body;
+    // QA bypass token: accepted from POST body, ?qa_token=<t> query param,
+    // or `x-qa-token` header. When it matches process.env.QA_BYPASS_TOKEN
+    // the rate-limit check short-circuits and the counter is NOT incremented.
+    const qaToken: string | null =
+      (typeof body?.qa_token === 'string' && body.qa_token) ||
+      req.nextUrl?.searchParams?.get('qa_token') ||
+      req.headers.get('x-qa-token') ||
+      null;
+    const qaBypassActive = isQaBypass(qaToken);
     // strictSpeaker: when true AND a speaker filter is set, skip the
     // filtered+unfiltered hybrid-search interleave entirely. Only return
     // chunks matching the speaker filter. Echoed back to the UI as
@@ -949,10 +993,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ─── Rate limit check (soft global 25/day, resets UTC midnight) ─
+    // ─── Rate limit check (soft global 200/day, resets UTC midnight) ─
     // Only new syntheses count; cached responses are free. If the daily
     // budget is exhausted, return 429 with a user-friendly message.
-    const rl = await checkRateLimit();
+    // QA harness requests carrying a valid qaToken bypass this entirely
+    // (rl.bypassed === true) and never consume budget via recordCall().
+    const rl = await checkRateLimit(qaToken);
     if (!rl.allowed) {
       return NextResponse.json(
         {
@@ -1533,6 +1579,19 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
               hedgesApplied: hedgesAppliedSse,
               verificationMs: verificationMsSse,
             };
+            // Telemetry: fire-and-forget per-claim verdict aggregate log so we
+            // can prove in production that the verifier is firing. Fail-silent.
+            try {
+              await appendVerifierStats({
+                query,
+                claimsTotal: verificationBlockSse.claimsTotal,
+                claimsUngrounded: verificationBlockSse.claimsUngrounded,
+                hedgesApplied: verificationBlockSse.hedgesApplied,
+                verificationMs: verificationBlockSse.verificationMs,
+              });
+            } catch {
+              /* never block response on telemetry failure */
+            }
 
             const finalPayload: CachedResponse = {
               report: finalReportSse,
@@ -1543,7 +1602,8 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
               disclaimer: disclaimerText,
             };
 
-            const rlAfter = recordCall();
+            // QA bypass: don't burn the user budget on harness runs.
+            const rlAfter = qaBypassActive ? rl : recordCall();
 
             after(() => cacheStore(cacheKey, finalPayload));
             after(async () => {
@@ -1579,6 +1639,22 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
             console.log(
               `[PERF] retrieveMs=${timingSse.retrieveMs} rerankMs=${timingSse.rerankMs} synthesisMs=${timingSse.synthesisMs} verificationMs=${verificationMsSse} totalMs=${timingSse.totalMs} mode=${searchMode} stream=true`
             );
+            // Persist per-stage timings to data/qa/perf-stats.jsonl so /api/perf
+            // can serve p50/p99 aggregates without a metrics pipeline.
+            after(() =>
+              appendPerfStats({
+                retrieveMs: timingSse.retrieveMs,
+                rerankMs: timingSse.rerankMs,
+                synthesisMs: timingSse.synthesisMs,
+                verificationMs: verificationMsSse,
+                totalMs: timingSse.totalMs,
+                mode: searchMode,
+                stream: true,
+                cacheHit: false,
+                speaker: speaker || null,
+                strict: strictModeActive,
+              })
+            );
 
             send({
               type: 'complete',
@@ -1591,7 +1667,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
               strictMode: strictModeActive,
               meta: {
                 copyright:
-                  'Transcripts © All-In Podcast. Used for non-commercial research and citation. Synthesis is paraphrased; quoted segments limited to fair-use length.',
+                  'Transcripts © All-In Podcast. Used for non-commercial research and citation. Synthesis is paraphrased; quoted segments limited to fair-use length. For takedown requests: /legal',
               },
               validation: {
                 checked: validation.totalChecked,
@@ -1627,6 +1703,8 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
           'X-Accel-Buffering': 'no',
+          // Confirm research-tool intent for search indexing.
+          'X-Robots-Tag': 'index, follow, max-snippet:-1',
         },
       });
     }
@@ -1693,6 +1771,18 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
       hedgesApplied,
       verificationMs,
     };
+    // Telemetry: fire-and-forget per-claim verdict aggregate log. Fail-silent.
+    try {
+      await appendVerifierStats({
+        query,
+        claimsTotal: verificationBlock.claimsTotal,
+        claimsUngrounded: verificationBlock.claimsUngrounded,
+        hedgesApplied: verificationBlock.hedgesApplied,
+        verificationMs: verificationBlock.verificationMs,
+      });
+    } catch {
+      /* never block response on telemetry failure */
+    }
 
     const payload: CachedResponse = {
       report: finalReport,
@@ -1704,8 +1794,9 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
         'Paraphrased synthesis from transcript data — not verbatim quotes.',
     };
 
-    // This was a real Claude-powered synthesis — consume 1 from the budget.
-    const rlAfter = recordCall();
+    // This was a real Claude-powered synthesis — consume 1 from the budget,
+    // unless this is a QA-bypass request (then keep the original snapshot).
+    const rlAfter = qaBypassActive ? rl : recordCall();
 
     // Write-through to pi-brain for future cache hits. Runs AFTER the response
     // is sent so the user doesn't pay for network round-trip on a miss.
@@ -1763,6 +1854,22 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
     console.log(
       `[PERF] retrieveMs=${timing.retrieveMs} rerankMs=${timing.rerankMs} synthesisMs=${timing.synthesisMs} verificationMs=${verificationMs} totalMs=${timing.totalMs} mode=${searchMode} stream=false`
     );
+    // Persist per-stage timings to data/qa/perf-stats.jsonl so /api/perf
+    // can serve p50/p99 aggregates without a metrics pipeline.
+    after(() =>
+      appendPerfStats({
+        retrieveMs: timing.retrieveMs,
+        rerankMs: timing.rerankMs,
+        synthesisMs: timing.synthesisMs,
+        verificationMs,
+        totalMs: timing.totalMs,
+        mode: searchMode,
+        stream: false,
+        cacheHit: false,
+        speaker: speaker || null,
+        strict: strictModeActive,
+      })
+    );
 
     return NextResponse.json({
       ...payload,
@@ -1774,7 +1881,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
       strictMode: strictModeActive,
       meta: {
         copyright:
-          'Transcripts © All-In Podcast. Used for non-commercial research and citation. Synthesis is paraphrased; quoted segments limited to fair-use length.',
+          'Transcripts © All-In Podcast. Used for non-commercial research and citation. Synthesis is paraphrased; quoted segments limited to fair-use length. For takedown requests: /legal',
       },
       validation: {
         checked: validation.totalChecked,
@@ -1786,6 +1893,11 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
         limit: rlAfter.limit,
         remaining: rlAfter.remaining,
         resetsAt: rlAfter.resetsAt,
+      },
+    }, {
+      headers: {
+        // Confirm research-tool intent for search indexing.
+        'X-Robots-Tag': 'index, follow, max-snippet:-1',
       },
     });
   } catch (err: unknown) {

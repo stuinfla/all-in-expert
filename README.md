@@ -3,7 +3,7 @@
 **Live:** https://asktheallinexperts.vercel.app
 **GitHub:** https://github.com/stuinfla/all-in-expert
 
-An AI-powered intelligence system built on 448 episodes of the All-In Podcast. Ask a question and get a voice-matched round-table dialogue in the style of Chamath Palihapitiya, David Sacks, David Friedberg, and Jason Calacanis, grounded in real transcript citations.
+An AI-powered intelligence system built on 186 episodes of the All-In Podcast (Apr 2024 – May 2026). Ask a question and get a voice-matched round-table dialogue in the style of Chamath Palihapitiya, David Sacks, David Friedberg, and Jason Calacanis, grounded in real transcript citations. Every numeric or specific claim is fact-checked against the cited transcript segments by a post-generation verifier (see ADR-027); ungrounded specifics are softened or removed before the response reaches you.
 
 Built by [IsoVision AI](https://isovision.ai).
 
@@ -24,28 +24,39 @@ Every substantive claim is cited back to a specific transcript segment with epis
 ## Architecture
 
 ### Data layer
-- **448 episodes** of All-In Podcast transcripts (Apr 2024 – Apr 2026, ~5.8M words)
-- **15,560 transcript chunks** (2-minute windows with topic/speaker tags)
+- **186 episodes** of All-In Podcast transcripts (Apr 2024 – May 2026, ~5.8M words)
+- **31,215 transcript chunks** — alias-based **per-turn chunking** (single-speaker windows with sentence-boundary respect), 92.2% labeled with `speakerKey`
 - **1,288 chapter topics** extracted from RSS show notes
-- **19 speaker profiles** (4 core besties + 15 frequent guests)
+- **23 speaker profiles** (4 core besties + 19 frequent guests including Gerstner, Musk, Naval, Thiel, Ackman, Howery, Doerr)
 - **CC-licensed photos** from Wikimedia Commons (4 core besties)
 - **Ground-truth facts file** (bestie-facts.json) overrides retrieval on biographical questions
 
 ### Retrieval
-- **Semantic**: OpenAI text-embedding-3-small (384 dims) — consistent space for query + docs, pure-JS cosine over a 22.8MB Float32 binary (15,560 × 384)
-- **Fallback**: TF-IDF with IDF-weighted term scoring (838KB IDF lookup precomputed from corpus)
-- **Recency boost**: exponential decay with 180-day half-life, 0.4 floor — recent episodes rank higher when positions have evolved
-- **Speaker filter**: optional filter on "voices" metadata
+- **Embeddings**: local `Xenova/all-MiniLM-L6-v2` (384 dims, mean-pool + L2-normalize) — no external API at query time, single vector space for build and query.
+- **Hybrid search**: dense (Xenova cosine over 47.9MB `embeddings.bin`) + sparse (**BM25-Okapi**, k1=1.5, b=0.75, via `idf.json` + `doc-lengths.json` avgdl=141.53) fused via **Reciprocal Rank Fusion** (k=60).
+- **MMR diversity rerank** (λ=0.5 opinion / 0.7 biographical, same-episode 0.5 penalty).
+- **3-tier topical-relevance gate** on claim-bias multiplier (prevents off-topic claim-dense chunks rescuing themselves).
+- **Recency boost**: 180-day half-life / 0.4 floor for biographical; **90d / 0.15 floor for opinion queries** when speaker filter applies.
+- **Strict speaker mode**: UI toggle default-on when single bestie selected; skips filtered+unfiltered interleave for pure-speaker retrieval.
+- RVF HNSW path exists but is not currently the live path — see ADR-028.
 
 ### Synthesis
-- **Claude Haiku 4.5** for fast dialogue generation (~8-15s end-to-end)
-- **Question classifier**: biographical → direct answer; topical → dialogue
-- **System prompt** includes voice profiles + hard-override ground-truth facts
+- **Claude Haiku 4.5** for dialogue generation, with **SSE streaming** (first-token ~2s).
+- **Post-generation claim verifier** (`validate-citations.ts`): second Haiku pass extracts every numeric/legislative/specific claim and marks GROUNDED / INFERRED / UNGROUNDED against citations.
+- **Hedge-or-refuse rewriter**: ungrounded claims are softened to hedges before the response reaches the user.
+- **Question classifier**: biographical → direct answer; topical → dialogue; forecast → confidence-rated roundtable.
+- **System prompt** includes voice profiles + voice-bleeding contrast paragraph + verbatim sample-quote few-shot (from `speaker-profiles.json`) + ground-truth facts.
+- **Paraphrase disclaimer** in the user-facing UI and in the prompt itself.
+
+### Safety
+- **AIMDS middleware** (`@claude-flow/aidefence`) — inbound (400 on prompt injection) and outbound (audit-only via `after()` with structured `[AIDEFENCE-OUTBOUND]` log).
 
 ### Infrastructure
-- **Next.js 16** App Router + Tailwind CSS
-- **Deployed on Vercel** (static data bundled in `public/data/`)
-- **Weekly auto-update** LaunchAgent (runs Saturdays 4 AM) pulls new episodes, rebuilds KB, redeploys
+- **Next.js 16** App Router + Tailwind CSS, streaming server actions.
+- **Deployed on Vercel** (static data bundled in `public/data/`).
+- **Weekly auto-update** LaunchAgent (Saturdays 4 AM EDT) — RSS + caption download + KB rebuild + Vercel deploy + alias + cache warm + QA-CI regression check.
+- **Observability**: `/api/health` (chunk count + QA score + verifier rollup), `/api/perf` (p50/p99 latency per stage), `[PERF]` structured logs.
+- **Rate limit**: 200/day. `QA_BYPASS_TOKEN` env grants unmetered access for the regression harness.
 - **Domain**: asktheallinexperts.vercel.app
 
 ---
@@ -186,28 +197,38 @@ Response:
 
 ---
 
-## Project status (as of 2026-04-12)
+## Project status (as of 2026-05-13)
 
-### What works
-- ✅ 448 episodes processed, 5.8M words indexed
-- ✅ Real semantic search locally (OpenAI text-embedding-3-small @ 384 dims)
-- ✅ Pure-JS cosine over 22.8MB binary — no native deps, no RVF native-module issues
-- ✅ Ground-truth facts override (Sacks correctly classified as Republican etc.)
-- ✅ Voice-matched round-table dialogue format (Haiku 4.5, ~8-15s latency)
-- ✅ Citations with episode date + timestamp + YouTube deep-links
-- ✅ Recency weighting (180-day half-life, 0.4 floor)
-- ✅ Chapter/topic browser at `/chapters` with 181 episodes of show-note data
-- ✅ Editorial UI with real CC-licensed bestie photos
-- ✅ Weekly auto-update LaunchAgent (Saturdays 4 AM)
+**Current measured score: 83.8 / 100** on the canonical 20-Q harness with Sonnet-grader. Five-iteration sprint moved the rubric from a 72/100 external-reviewer baseline. See `NEXT_SESSION.md` for the full per-dimension breakdown and the documented path to 92.
 
-### Known issues being worked
-- ⚠️ Production `searchMode` showing `tfidf` instead of `semantic` — binary loading in Vercel serverless needs verification. Next step: check Vercel function logs and test with warm-cache.
-- ⚠️ 20-question QA pilot averaged ~68/100; target is 98. Iterating on retrieval precision and citation accuracy.
+### What works (verified live this sprint)
+- ✅ 186 episodes, ~5.8M words, **31,215 per-turn chunks** with 92.2% speaker-labeled
+- ✅ Local Xenova embeddings (no OpenAI dependency at query time)
+- ✅ Hybrid dense + BM25 retrieval via RRF fusion
+- ✅ MMR diversity reranking + topical-relevance gate
+- ✅ Strict speaker mode (UI toggle, 12/12 single-speaker citations on demand)
+- ✅ Post-generation claim verifier (Haiku 4.5, 85% hit rate, ungrounded claims hedged)
+- ✅ FACT-CHECK UI card showing grounded/inferred/ungrounded counts
+- ✅ SSE streaming (first-token ~2s vs prior ~30s blocking)
+- ✅ AIMDS inbound/outbound (`@claude-flow/aidefence`)
+- ✅ Ground-truth facts override
+- ✅ Voice-matched round-table with verbatim sample-quote few-shot
+- ✅ Citations with episode date + timestamp + YouTube deep-links + speakerKey
+- ✅ Persistent visitor counter via abacus atomic INCR (display floor 10,001)
+- ✅ Chapter/topic browser at `/chapters`
+- ✅ Mobile-responsive UI verified at 375px
+- ✅ Weekly auto-update LaunchAgent + QA-CI regression gate
+- ✅ /legal page with DMCA template + X-Robots-Tag + 280-char fair-use quote cap
+- ✅ `/api/health` and `/api/perf` observability endpoints
 
-### What's not yet built
-- ❌ Speaker diarization (all "voices" metadata is keyword-based, not audio-diarized)
-- ❌ Query caching / ReasoningBank
-- ❌ Louvain community detection for topic clustering
-- ❌ CoherenceMonitor for contradiction detection
-- ❌ Streaming responses (perceived latency win)
-- ❌ AIMDS middleware (per global CLAUDE.md rule #17)
+### Known limitations
+- ⚠️ **Speaker fidelity hard-capped at 80/100** without audio diarization. ~7.8% of chunks are unattributable from caption text alone (intros, cross-talk, cold opens). Pyannote.audio is the documented path past this cap.
+- ⚠️ Post-gen verifier SOFTENS ungrounded claims but doesn't excise the offending sentences — biggest residual gap to 92. Documented fix is regenerate-in-limited-mode when `claimsUngrounded > 2`.
+- ⚠️ RVF HNSW write hits `FsyncFailed 0x0303` on every rebuild — see ADR-028. Falls back to bin cosine (correct, ~30ms at 31k vectors).
+- ⚠️ `/api/perf` and `verifierStats.last100` write to Vercel `/tmp` — no cross-instance aggregation in the serverless fleet.
+
+### Path past 92 (documented in NEXT_SESSION.md)
+1. **Audio diarization** workstream — unlocks Speaker cap (+2.7 weighted points)
+2. **Regenerate-in-limited-mode** rewriter — fix the verifier-softens-not-excises pattern (+4 points)
+3. **Cross-encoder rerank** after BM25 — catch topical drift on idiom-rich queries (+2 points)
+4. **Durable telemetry** — push verdicts to AgentDB or pi-brain instead of /tmp (+1 point)
