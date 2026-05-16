@@ -1,0 +1,690 @@
+{
+  "generatedAt": "2026-05-14T19:37:29.147Z",
+  "count": 76,
+  "clusters": [
+    {
+      "id": "topic_001",
+      "slug": "tariffs-and-trade-policy",
+      "label": "Tariffs & Trade Policy",
+      "description": "Discussion of tariff impacts, trade strategy, economic consequences, and the administration's tariff experiment.",
+      "size": 26,
+      "firstSeen": "2024-06-20",
+      "lastSeen": "2026-03-23"
+    },
+    {
+      "id": "topic_002",
+      "slug": "openai-business-and-competition",
+      "label": "OpenAI: Business & Competition",
+      "description": "OpenAI's fundraising, valuation, corporate structure, revenue growth, and competitive dynamics with rivals.",
+      "size": 22,
+      "firstSeen": "2024-05-10",
+      "lastSeen": "2026-04-10"
+    },
+    {
+      "id": "topic_003",
+      "slug": "geopolitics-china",
+      "label": "Geopolitics: China",
+      "description": "US-China relations, trade, military threats, Taiwan, and strategic competition between the superpowers.",
+      "size": 17,
+      "firstSeen": "2024-06-20",
+      "lastSeen": "2026-04-06"
+    },
+    {
+      "id": "topic_004",
+      "slug": "ai-and-economic-impact",
+      "label": "AI & Economic Impact",
+      "description": "AI's market opportunities, economic effects, policy implications, and transformative potential for GDP and employment.",
+      "size": 16,
+      "firstSeen": "2024-05-10",
+      "lastSeen": "2026-05-08"
+    },
+    {
+      "id": "topic_005",
+      "slug": "iran-conflict-and-geopolitics",
+      "label": "Iran Conflict & Geopolitics",
+      "description": "Discussion of Iran war scenarios, regime change prospects, economic impacts, and future political outcomes.",
+      "size": 12,
+      "firstSeen": "2025-06-13",
+      "lastSeen": "2026-04-17"
+    },
+    {
+      "id": "topic_006",
+      "slug": "2024-election-kamala-harris",
+      "label": "2024 Election: Kamala Harris",
+      "description": "Coverage of Kamala Harris's campaign, nomination, debate performance, economic policies, and election results.",
+      "size": 11,
+      "firstSeen": "2024-07-26",
+      "lastSeen": "2024-11-08"
+    },
+    {
+      "id": "topic_007",
+      "slug": "censorship-and-free-speech",
+      "label": "Censorship & Free Speech",
+      "description": "Discussion of censorship practices, government overreach, content moderation, and free speech implications across platforms and jurisdictions.",
+      "size": 9,
+      "firstSeen": "2024-10-08",
+      "lastSeen": "2026-01-22"
+    },
+    {
+      "id": "topic_008",
+      "slug": "crypto-and-digital-assets",
+      "label": "Crypto & Digital Assets",
+      "description": "Discussion of cryptocurrency markets, Bitcoin, regulation, risks, and emerging use cases across finance and other sectors.",
+      "size": 8,
+      "firstSeen": "2024-10-03",
+      "lastSeen": "2026-03-11"
+    },
+    {
+      "id": "topic_009",
+      "slug": "federal-reserve-and-monetary-policy",
+      "label": "Federal Reserve & Monetary Policy",
+      "description": "Discussion of Fed decisions, leadership, market impact, and relationship with government policy.",
+      "size": 7,
+      "firstSeen": "2024-09-20",
+      "lastSeen": "2025-12-22"
+    },
+    {
+      "id": "topic_010",
+      "slug": "us-fiscal-crisis-and-debt",
+      "label": "US Fiscal Crisis & Debt",
+      "description": "Discussion of America's federal debt trajectory, fiscal challenges, and potential solutions to avoid economic crisis.",
+      "size": 7,
+      "firstSeen": "2024-06-20",
+      "lastSeen": "2025-10-30"
+    },
+    {
+      "id": "topic_011",
+      "slug": "immigration-and-border-policy",
+      "label": "Immigration & Border Policy",
+      "description": "US immigration reform, illegal immigration enforcement, and related policy discussions.",
+      "size": 7,
+      "firstSeen": "2025-04-05",
+      "lastSeen": "2026-03-18"
+    },
+    {
+      "id": "topic_012",
+      "slug": "us-china-ai-competition",
+      "label": "US-China AI Competition",
+      "description": "The geopolitical rivalry between US and China in artificial intelligence development, strategy, and technological dominance.",
+      "size": 6,
+      "firstSeen": "2025-01-31",
+      "lastSeen": "2025-11-07"
+    },
+    {
+      "id": "topic_013",
+      "slug": "glp-1-drugs",
+      "label": "GLP-1 Drugs",
+      "description": "Discussion of GLP-1 medications, their pricing, health impacts, and broader societal implications.",
+      "size": 6,
+      "firstSeen": "2025-02-07",
+      "lastSeen": "2026-03-26"
+    },
+    {
+      "id": "topic_014",
+      "slug": "political-and-government-leaders",
+      "label": "Political & Government Leaders",
+      "description": "Interviews with U.S. government officials, senators, and regulatory leaders discussing policy and governance.",
+      "size": 6,
+      "firstSeen": "2025-02-15",
+      "lastSeen": "2026-03-11"
+    },
+    {
+      "id": "topic_015",
+      "slug": "ai-skepticism-and-criticism",
+      "label": "AI Skepticism & Criticism",
+      "description": "Examination of anti-AI sentiment, bias concerns, doomerism, and manufactured opposition to artificial intelligence.",
+      "size": 5,
+      "firstSeen": "2024-07-12",
+      "lastSeen": "2025-12-19"
+    },
+    {
+      "id": "topic_016",
+      "slug": "wealth-taxes-and-property-seizure",
+      "label": "Wealth Taxes & Property Seizure",
+      "description": "Discussion of wealth taxes, property taxes, and billionaire taxation policies in California and New York.",
+      "size": 5,
+      "firstSeen": "2025-10-24",
+      "lastSeen": "2026-04-17"
+    },
+    {
+      "id": "topic_017",
+      "slug": "california-leadership-and-politics",
+      "label": "California Leadership & Politics",
+      "description": "Discussion of California gubernatorial and mayoral races, political candidates, and state leadership reform.",
+      "size": 5,
+      "firstSeen": "2025-01-20",
+      "lastSeen": "2026-03-23"
+    },
+    {
+      "id": "topic_018",
+      "slug": "energy-policy-and-production",
+      "label": "Energy Policy & Production",
+      "description": "US energy challenges, policy impacts, production capacity, and economic implications of energy decisions.",
+      "size": 5,
+      "firstSeen": "2025-05-06",
+      "lastSeen": "2026-03-23"
+    },
+    {
+      "id": "topic_019",
+      "slug": "socialism-and-wealth-inequality",
+      "label": "Socialism & Wealth Inequality",
+      "description": "Discussion of rising socialist sentiment in America, wealth inequality, and entitlement culture.",
+      "size": 5,
+      "firstSeen": "2025-10-16",
+      "lastSeen": "2026-03-09"
+    },
+    {
+      "id": "topic_020",
+      "slug": "government-officials",
+      "label": "Government Officials",
+      "description": "Interviews and conversations with U.S. Cabinet members and government leaders.",
+      "size": 5,
+      "firstSeen": "2025-03-19",
+      "lastSeen": "2026-01-09"
+    },
+    {
+      "id": "topic_021",
+      "slug": "2024-election-and-harris-nomination",
+      "label": "2024 Election & Harris Nomination",
+      "description": "Discussion of the 2024 presidential race, Harris's nomination, polling, strategy, and Democratic party dynamics.",
+      "size": 5,
+      "firstSeen": "2024-07-04",
+      "lastSeen": "2025-10-30"
+    },
+    {
+      "id": "topic_022",
+      "slug": "xai-and-grok-models",
+      "label": "xAI & Grok Models",
+      "description": "Elon's xAI company, Grok language models, Colossus infrastructure, and AI scaling developments.",
+      "size": 5,
+      "firstSeen": "2024-12-07",
+      "lastSeen": "2025-09-10"
+    },
+    {
+      "id": "topic_023",
+      "slug": "big-beautiful-bill",
+      "label": "Big Beautiful Bill",
+      "description": "Discussion of a major legislative proposal, Senate dynamics, GOP divisions, and potential outcomes.",
+      "size": 5,
+      "firstSeen": "2025-05-17",
+      "lastSeen": "2025-09-05"
+    },
+    {
+      "id": "topic_024",
+      "slug": "ukraine-and-russia-conflict",
+      "label": "Ukraine & Russia Conflict",
+      "description": "Discussion of the Russia-Ukraine war, peace negotiations, NATO involvement, and geopolitical implications.",
+      "size": 5,
+      "firstSeen": "2024-04-05",
+      "lastSeen": "2025-08-20"
+    },
+    {
+      "id": "topic_025",
+      "slug": "post-interview-recap",
+      "label": "Post-Interview Recap",
+      "description": "Host discussion and analysis following guest interviews on the podcast.",
+      "size": 5,
+      "firstSeen": "2024-05-03",
+      "lastSeen": "2025-05-25"
+    },
+    {
+      "id": "topic_026",
+      "slug": "doge-and-government-efficiency",
+      "label": "DOGE & Government Efficiency",
+      "description": "Trump's Department of Government Efficiency initiative, its implementation, impact, and role in government reform.",
+      "size": 5,
+      "firstSeen": "2024-11-23",
+      "lastSeen": "2025-03-20"
+    },
+    {
+      "id": "topic_027",
+      "slug": "stripe-and-payment-infrastructure",
+      "label": "Stripe & Payment Infrastructure",
+      "description": "Stripe's business model, growth metrics, IPO timing, and competition with traditional payment networks.",
+      "size": 5,
+      "firstSeen": "2024-07-19",
+      "lastSeen": "2025-03-01"
+    },
+    {
+      "id": "topic_028",
+      "slug": "ai-and-healthcare-innovation",
+      "label": "AI & Healthcare Innovation",
+      "description": "AI's role in transforming healthcare, drug pricing, patient empowerment, and disrupting pharmaceutical industry influence.",
+      "size": 4,
+      "firstSeen": "2025-09-29",
+      "lastSeen": "2026-05-08"
+    },
+    {
+      "id": "topic_029",
+      "slug": "bryan-johnson",
+      "label": "Bryan Johnson",
+      "description": "Discussion of Bryan Johnson's background, introduction, and personal experiences with psychedelic substances.",
+      "size": 4,
+      "firstSeen": "2025-04-03",
+      "lastSeen": "2026-03-26"
+    },
+    {
+      "id": "topic_030",
+      "slug": "ai-doomerism-debate",
+      "label": "AI Doomerism Debate",
+      "description": "Discussion of AI doomsday narratives versus techno-optimist perspectives and their cultural impact.",
+      "size": 4,
+      "firstSeen": "2025-02-15",
+      "lastSeen": "2026-03-19"
+    },
+    {
+      "id": "topic_031",
+      "slug": "asset-performance",
+      "label": "Asset Performance",
+      "description": "Analysis of best and worst performing assets across markets and time periods.",
+      "size": 4,
+      "firstSeen": "2025-01-04",
+      "lastSeen": "2026-01-10"
+    },
+    {
+      "id": "topic_032",
+      "slug": "anticipated-trends-and-media",
+      "label": "Anticipated Trends & Media",
+      "description": "Discussion of upcoming trends and media the hosts expect to shape culture and business.",
+      "size": 4,
+      "firstSeen": "2025-01-04",
+      "lastSeen": "2026-01-10"
+    },
+    {
+      "id": "topic_033",
+      "slug": "us-economic-growth-and-performance",
+      "label": "US Economic Growth & Performance",
+      "description": "Analysis of GDP growth rates, economic outlook, and underlying economic health indicators.",
+      "size": 4,
+      "firstSeen": "2024-11-01",
+      "lastSeen": "2026-01-09"
+    },
+    {
+      "id": "topic_034",
+      "slug": "quantum-computing-and-cryptography",
+      "label": "Quantum Computing & Cryptography",
+      "description": "Quantum computing breakthroughs, qubits, and implications for encryption and security.",
+      "size": 4,
+      "firstSeen": "2024-12-13",
+      "lastSeen": "2025-10-27"
+    },
+    {
+      "id": "topic_035",
+      "slug": "russiagate-and-intelligence",
+      "label": "Russiagate & Intelligence",
+      "description": "Discussion of Russiagate allegations, intelligence agency politicization, and related 2016 election interference claims.",
+      "size": 4,
+      "firstSeen": "2025-08-20",
+      "lastSeen": "2025-09-15"
+    },
+    {
+      "id": "topic_036",
+      "slug": "antisemitism-and-israel",
+      "label": "Antisemitism & Israel",
+      "description": "Rising antisemitism, its connection to Israel discourse, and related political implications.",
+      "size": 4,
+      "firstSeen": "2024-07-26",
+      "lastSeen": "2025-09-09"
+    },
+    {
+      "id": "topic_037",
+      "slug": "podcast-sponsors",
+      "label": "Podcast Sponsors",
+      "description": "Acknowledgments and thanks to podcast partners and sponsors.",
+      "size": 4,
+      "firstSeen": "2025-05-20",
+      "lastSeen": "2025-06-19"
+    },
+    {
+      "id": "topic_038",
+      "slug": "david-sacks-ai-and-crypto-leadership",
+      "label": "David Sacks: AI & Crypto Leadership",
+      "description": "David Sacks's new government role, policy initiatives, and AI/crypto projects he's developing.",
+      "size": 4,
+      "firstSeen": "2024-05-17",
+      "lastSeen": "2025-02-07"
+    },
+    {
+      "id": "topic_039",
+      "slug": "trump-and-ai-policy",
+      "label": "Trump & AI Policy",
+      "description": "Trump's positions on AI development, government technology, and the competitive AI race.",
+      "size": 3,
+      "firstSeen": "2025-03-20",
+      "lastSeen": "2025-08-01"
+    },
+    {
+      "id": "topic_040",
+      "slug": "homelessness-and-public-safety",
+      "label": "Homelessness & Public Safety",
+      "description": "Urban homelessness, crime prevention, law enforcement, and policy solutions across cities.",
+      "size": 3,
+      "firstSeen": "2025-06-03",
+      "lastSeen": "2026-04-29"
+    },
+    {
+      "id": "topic_041",
+      "slug": "israel-and-middle-east-conflict",
+      "label": "Israel & Middle East Conflict",
+      "description": "Netanyahu's leadership, Israeli democracy, Iran tensions, and regional security strategy.",
+      "size": 3,
+      "firstSeen": "2026-03-09",
+      "lastSeen": "2026-04-08"
+    },
+    {
+      "id": "topic_042",
+      "slug": "defense-tech-and-silicon-valley",
+      "label": "Defense Tech & Silicon Valley",
+      "description": "Silicon Valley's relationship with defense technology, military innovation, and cultural resistance to defense work.",
+      "size": 3,
+      "firstSeen": "2024-04-12",
+      "lastSeen": "2026-04-06"
+    },
+    {
+      "id": "topic_043",
+      "slug": "ipos-and-manda-2025",
+      "label": "IPOs & M&A 2025",
+      "description": "Capital markets activity including IPO pipelines, merger deals, and acquisition trends.",
+      "size": 3,
+      "firstSeen": "2024-11-16",
+      "lastSeen": "2026-04-03"
+    },
+    {
+      "id": "topic_044",
+      "slug": "jensen-huang-and-nvidia",
+      "label": "Jensen Huang & Nvidia",
+      "description": "Discussion of Jensen Huang's leadership, insights, and Nvidia's role in AI and technology.",
+      "size": 3,
+      "firstSeen": "2025-07-23",
+      "lastSeen": "2026-03-19"
+    },
+    {
+      "id": "topic_045",
+      "slug": "vc-fund-structure-and-returns",
+      "label": "VC Fund Structure & Returns",
+      "description": "Venture capital fund formation, LP returns, and evolving investor models in private markets.",
+      "size": 3,
+      "firstSeen": "2024-10-11",
+      "lastSeen": "2026-03-11"
+    },
+    {
+      "id": "topic_046",
+      "slug": "greenland-acquisition",
+      "label": "Greenland Acquisition",
+      "description": "Discussion of Trump's interest in acquiring Greenland, strategic importance, and potential deal scenarios.",
+      "size": 3,
+      "firstSeen": "2025-01-11",
+      "lastSeen": "2026-03-09"
+    },
+    {
+      "id": "topic_047",
+      "slug": "middle-east-conflict-and-peace",
+      "label": "Middle East Conflict & Peace",
+      "description": "Discussion of Middle East tensions, regional conflicts, and pathways toward resolution and stability.",
+      "size": 3,
+      "firstSeen": "2024-08-02",
+      "lastSeen": "2026-03-07"
+    },
+    {
+      "id": "topic_048",
+      "slug": "jeffrey-epstein",
+      "label": "Jeffrey Epstein",
+      "description": "Discussion of Jeffrey Epstein's background, finances, and the mythology surrounding his case.",
+      "size": 3,
+      "firstSeen": "2025-11-22",
+      "lastSeen": "2026-02-20"
+    },
+    {
+      "id": "topic_049",
+      "slug": "liquidity-and-capital-markets",
+      "label": "Liquidity & Capital Markets",
+      "description": "Discussion of market liquidity, SPACs, direct listings, and macro asset allocation trends.",
+      "size": 3,
+      "firstSeen": "2024-10-25",
+      "lastSeen": "2026-02-13"
+    },
+    {
+      "id": "topic_050",
+      "slug": "us-economy-and-jobs",
+      "label": "US Economy & Jobs",
+      "description": "Discussion of economic conditions, employment trends, and labor market health in the United States.",
+      "size": 3,
+      "firstSeen": "2024-06-14",
+      "lastSeen": "2026-02-13"
+    },
+    {
+      "id": "topic_051",
+      "slug": "epstein-files-release",
+      "label": "Epstein Files Release",
+      "description": "Discussion of the Epstein court documents release and initial public reaction.",
+      "size": 3,
+      "firstSeen": "2025-03-01",
+      "lastSeen": "2026-02-07"
+    },
+    {
+      "id": "topic_052",
+      "slug": "la-wildfires-and-rebuilding",
+      "label": "LA Wildfires & Rebuilding",
+      "description": "LA wildfire response, recovery efforts, leadership failures, and rebuilding challenges in affected communities.",
+      "size": 3,
+      "firstSeen": "2025-01-11",
+      "lastSeen": "2026-01-13"
+    },
+    {
+      "id": "topic_053",
+      "slug": "pharma-pricing-and-regulation",
+      "label": "Pharma Pricing & Regulation",
+      "description": "Government intervention in drug prices, PBM reform, and pharmaceutical industry influence.",
+      "size": 3,
+      "firstSeen": "2024-11-16",
+      "lastSeen": "2026-01-09"
+    },
+    {
+      "id": "topic_054",
+      "slug": "youth-employment-and-job-market",
+      "label": "Youth Employment & Job Market",
+      "description": "Trends in hiring, unemployment, and career paths for young workers and recent graduates.",
+      "size": 3,
+      "firstSeen": "2024-09-27",
+      "lastSeen": "2026-01-08"
+    },
+    {
+      "id": "topic_055",
+      "slug": "middle-east-and-saudi-arabia",
+      "label": "Middle East & Saudi Arabia",
+      "description": "Saudi Arabia's geopolitical strategy, US-China relations, and Trump's Middle East initiatives.",
+      "size": 3,
+      "firstSeen": "2025-05-17",
+      "lastSeen": "2025-11-04"
+    },
+    {
+      "id": "topic_056",
+      "slug": "ai-and-middle-east-strategy",
+      "label": "AI & Middle East Strategy",
+      "description": "US-Saudi Arabia partnerships, Middle Eastern AI competition, and datacenter diplomacy initiatives.",
+      "size": 3,
+      "firstSeen": "2025-05-24",
+      "lastSeen": "2025-11-04"
+    },
+    {
+      "id": "topic_057",
+      "slug": "wwe-business-and-culture",
+      "label": "WWE Business & Culture",
+      "description": "WWE's business model, live event strategy, wrestler personas, and organizational support systems.",
+      "size": 3,
+      "firstSeen": "2025-11-03",
+      "lastSeen": "2025-11-03"
+    },
+    {
+      "id": "topic_058",
+      "slug": "ai-automation-and-self-driving",
+      "label": "AI Automation & Self-Driving",
+      "description": "Autonomous vehicles, robotics, and AI-driven automation's impact on employment and society.",
+      "size": 3,
+      "firstSeen": "2024-04-05",
+      "lastSeen": "2025-10-31"
+    },
+    {
+      "id": "topic_059",
+      "slug": "nasa-and-space-policy",
+      "label": "NASA & Space Policy",
+      "description": "NASA leadership, budget, operations, and competition in space exploration.",
+      "size": 3,
+      "firstSeen": "2025-06-04",
+      "lastSeen": "2025-10-30"
+    },
+    {
+      "id": "topic_060",
+      "slug": "longevity-and-life-extension",
+      "label": "Longevity & Life Extension",
+      "description": "Discussion of longevity research, hacks, and approaches to extending human lifespan.",
+      "size": 3,
+      "firstSeen": "2025-06-19",
+      "lastSeen": "2025-10-14"
+    },
+    {
+      "id": "topic_061",
+      "slug": "h-1b-and-immigration",
+      "label": "H-1B & Immigration",
+      "description": "H-1B visa policy, immigration reform, and global talent recruitment challenges.",
+      "size": 3,
+      "firstSeen": "2024-06-20",
+      "lastSeen": "2025-10-02"
+    },
+    {
+      "id": "topic_062",
+      "slug": "autonomous-vehicles-and-uber",
+      "label": "Autonomous Vehicles & Uber",
+      "description": "Self-driving technology's impact on Uber's business model, operations, and workforce.",
+      "size": 3,
+      "firstSeen": "2025-09-17",
+      "lastSeen": "2025-09-17"
+    },
+    {
+      "id": "topic_063",
+      "slug": "ai-robotics",
+      "label": "AI Robotics",
+      "description": "Discussion of robotics development, humanoid form factors, and autonomous robot capabilities.",
+      "size": 3,
+      "firstSeen": "2025-03-01",
+      "lastSeen": "2025-09-12"
+    },
+    {
+      "id": "topic_064",
+      "slug": "nasdaq-and-market-infrastructure",
+      "label": "Nasdaq & Market Infrastructure",
+      "description": "Nasdaq's evolution, tokenized securities, and competition from new trading platforms.",
+      "size": 3,
+      "firstSeen": "2024-06-07",
+      "lastSeen": "2025-09-09"
+    },
+    {
+      "id": "topic_065",
+      "slug": "chamaths-portfolio-and-crypto",
+      "label": "Chamath's Portfolio & Crypto",
+      "description": "Chamath's investment performance, energy framework, and cryptocurrency market insights.",
+      "size": 3,
+      "firstSeen": "2024-05-31",
+      "lastSeen": "2025-09-08"
+    },
+    {
+      "id": "topic_066",
+      "slug": "covid-origins-and-cover-up",
+      "label": "COVID Origins & Cover-Up",
+      "description": "Investigation into COVID's origins, gain-of-function research, and alleged government cover-ups.",
+      "size": 3,
+      "firstSeen": "2024-05-31",
+      "lastSeen": "2025-09-05"
+    },
+    {
+      "id": "topic_067",
+      "slug": "us-sovereign-wealth-fund",
+      "label": "US Sovereign Wealth Fund",
+      "description": "Discussion of establishing and implementing a US sovereign wealth fund strategy.",
+      "size": 3,
+      "firstSeen": "2025-02-07",
+      "lastSeen": "2025-08-29"
+    },
+    {
+      "id": "topic_068",
+      "slug": "us-china-ai-chip-competition",
+      "label": "US-China AI Chip Competition",
+      "description": "US export controls on advanced semiconductors to China and China's efforts to develop domestic chip alternatives.",
+      "size": 3,
+      "firstSeen": "2025-03-29",
+      "lastSeen": "2025-08-09"
+    },
+    {
+      "id": "topic_069",
+      "slug": "trumps-first-100-days",
+      "label": "Trump's First 100 Days",
+      "description": "Assessment of Trump's early presidency priorities, reforms, and administrative changes.",
+      "size": 3,
+      "firstSeen": "2025-05-02",
+      "lastSeen": "2025-05-04"
+    },
+    {
+      "id": "topic_070",
+      "slug": "recession-risk-and-economic-outlook",
+      "label": "Recession Risk & Economic Outlook",
+      "description": "Discussion of recession probability, economic indicators, and Federal Reserve rate cut expectations.",
+      "size": 3,
+      "firstSeen": "2024-08-02",
+      "lastSeen": "2025-04-11"
+    },
+    {
+      "id": "topic_071",
+      "slug": "trump-and-his-presidency",
+      "label": "Trump & His Presidency",
+      "description": "Analysis of Trump's presidential performance, policy outcomes, and economic impacts.",
+      "size": 3,
+      "firstSeen": "2024-10-03",
+      "lastSeen": "2025-03-19"
+    },
+    {
+      "id": "topic_072",
+      "slug": "democratic-party-crisis",
+      "label": "Democratic Party Crisis",
+      "description": "Discussion of the Democratic Party's declining base, internal conflicts, and institutional challenges.",
+      "size": 3,
+      "firstSeen": "2024-06-29",
+      "lastSeen": "2025-02-07"
+    },
+    {
+      "id": "topic_073",
+      "slug": "tiktok-divest-or-ban",
+      "label": "TikTok Divest-or-Ban",
+      "description": "U.S. legislation requiring TikTok to divest from Chinese ownership or face a ban, including legal challenges and deal prospects.",
+      "size": 3,
+      "firstSeen": "2024-04-26",
+      "lastSeen": "2025-01-18"
+    },
+    {
+      "id": "topic_074",
+      "slug": "ufos-and-unexplained-phenomena",
+      "label": "UFOs & Unexplained Phenomena",
+      "description": "Discussion of UFO sightings, UAPs, drone incidents, and unexplained aerial phenomena.",
+      "size": 3,
+      "firstSeen": "2024-12-20",
+      "lastSeen": "2025-01-18"
+    },
+    {
+      "id": "topic_075",
+      "slug": "nvidia-and-ai-infrastructure",
+      "label": "Nvidia & AI Infrastructure",
+      "description": "Nvidia's market dominance, earnings performance, and strategic positioning in AI and cloud computing.",
+      "size": 3,
+      "firstSeen": "2024-04-12",
+      "lastSeen": "2025-01-11"
+    },
+    {
+      "id": "topic_076",
+      "slug": "election-2024-polls-and-markets",
+      "label": "Election 2024: Polls & Markets",
+      "description": "Coverage of 2024 election dynamics, polling data, prediction markets, and candidate positioning.",
+      "size": 3,
+      "firstSeen": "2024-08-16",
+      "lastSeen": "2024-10-18"
+    }
+  ]
+}
