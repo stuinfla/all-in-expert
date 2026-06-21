@@ -2,6 +2,15 @@
 
 **Last sprint: 2026-05-12 → 2026-05-13. Final score: 83.8/100 (canonical 20-Q harness, May 13 2026).**
 
+> **UPDATE 2026-06-21 — supersedes stale specifics below.** Search uses **OpenAI
+> `text-embedding-3-small` (384d)** for both build and query (NOT Xenova/MiniLM — that's
+> the iter-5 snapshot; MiniLM/RVF is still built but disabled at serve time, see ADR-028).
+> The auto-update is now **daily, gated to rebuild every 3 days** (was weekly/Saturday) and
+> rebuilds the served OpenAI `embeddings.bin` + TF-IDF on every run; an independent watchdog
+> alerts (desktop + ntfy) on staleness/failure. Corpus: **203 episodes / 31,010 segments**
+> (Apr 2024 – Jun 2026). See README "Project status (2026-06-21)" for the reliability +
+> retrieval-coherence fix.
+
 ## Where you are
 
 Live at https://asktheallinexperts.vercel.app/. Five-iteration sprint moved
@@ -21,8 +30,8 @@ Iter-5 was the **first measured** score (prior iterations were code-only-inferre
 ## What's live (final architecture)
 
 ### Search & retrieval
-- **Local Xenova embeddings** (`Xenova/all-MiniLM-L6-v2`, 384d, mean-pool + L2-normalize)
-- **BM25-Okapi sparse** (k1=1.5, b=0.75) via `idf.json` + `doc-lengths.json` (avgdl=141.53)
+- **OpenAI embeddings** (`text-embedding-3-small`, 384d, L2-normalized) for both build and query — single shared vector space (MiniLM/RVF built but disabled at serve, see ADR-028)
+- **BM25-Okapi sparse** (k1=1.5, b=0.75) via `idf.json` + `doc-lengths.json` (avgdl=142.46)
 - **Hybrid via RRF** (k=60) fusing dense + BM25
 - **MMR diversity** (λ=0.5 opinion / 0.7 biographical, same-episode 0.5 penalty)
 - **3-tier topical-relevance gate** on claim-bias multiplier (bottom-half capped 1.05)
@@ -62,7 +71,7 @@ Iter-5 was the **first measured** score (prior iterations were code-only-inferre
 - **Rate limit: 200/day**. Bypass via `QA_BYPASS_TOKEN` env (not committed)
 - **/api/health** — chunk count, last QA score, verifier rollup, RVF/bin file sizes
 - **/api/perf** — p50/p99 latency per stage (note: /tmp-bound on Vercel, no cross-instance aggregation)
-- **Weekly auto-update** (Sat 04:00 EDT) — RSS + captions + KB rebuild + Vercel deploy + alias + cache-warm + QA-CI regression check
+- **Daily gated auto-update** (04:00, rebuilds when ≥3 days stale; weekly floor; same-day auto-retry on failure) — RSS + captions + KB rebuild + OpenAI embeddings + TF-IDF + Vercel deploy + alias + cache-warm + QA-CI regression check; independent watchdog (10:00) alerts on staleness/failure
 - **QA-CI** — fails on >3pt regression vs `data/qa/baseline.json`, or any q<60
 - **Legal**: `/legal` page + DMCA template + X-Robots-Tag
 
@@ -86,7 +95,7 @@ BM25 is healthier than TF-IDF on speaker-locked queries. But lexical match can't
 **Fix**: push verifier verdicts and perf samples to AgentDB or pi-brain (single row per request). Est. +1 weighted point.
 
 ### Speaker (HARD CAP 80/100, weight 18)
-No path past 80 without audio diarization (pyannote.audio v3 on 186 episodes' source audio). Single biggest unlock available. Est. +2.7 weighted points to clear the cap to 95.
+No path past 80 without audio diarization (pyannote.audio v3 on 203 episodes' source audio). Single biggest unlock available. Est. +2.7 weighted points to clear the cap to 95.
 
 **Sum**: ~9.7 if all four ship cleanly → ~93.5. Hitting exactly 92 is achievable with the first three (regenerate-in-limited-mode + cross-encoder rerank + durable telemetry) — that's ~7 weighted points → ~91. The diarization sprint is the path past 92 honestly.
 
@@ -111,5 +120,5 @@ No path past 80 without audio diarization (pyannote.audio v3 on 186 episodes' so
 
 ## Security notes
 
-- `QA_BYPASS_TOKEN=e8a16ab3-e106-4641-8cb5-2e13a1b890e4` lives in Vercel production env. Never commit. Already in `.gitignore` patterns. Local export: `export QA_BYPASS_TOKEN=…` before running `node scripts/qa-ci.mjs`.
+- `QA_BYPASS_TOKEN` lives in Vercel production env and in local `web/.env.local` — **never commit its value**. Local export: `export QA_BYPASS_TOKEN=…` before running `node scripts/qa-ci.mjs`. ⚠️ The literal token was previously committed in this file (in git history) — **rotate it** in Vercel + local env, since history exposure can't be undone by redaction alone.
 - Token grants unmetered API access. Rotate if leaked.

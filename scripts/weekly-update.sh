@@ -1,9 +1,18 @@
 #!/bin/bash
-# Weekly update for All-In Expert KB
-# Runs every Saturday: refreshes RSS, downloads new episode captions,
-# rebuilds the knowledge base, and redeploys to Vercel.
+# Auto-update for All-In Expert KB.
+# Refreshes RSS, downloads new episode captions, rebuilds the knowledge base,
+# and redeploys to Vercel.
 #
-# Install as LaunchAgent: com.isovision.all-in-expert.weekly
+# Scheduled DAILY at 4:00 AM by LaunchAgent com.isovision.all-in-expert.weekly
+# and invoked with "--if-stale 3": it only does the heavy rebuild when the KB
+# is >= 3 days old, so effective cadence is "every 3 days" with a same-day
+# automatic retry after any failure. An independent watchdog
+# (com.isovision.all-in-expert.watchdog) alerts if the KB ever goes stale.
+#
+# HISTORY: silently dead 2026-05-30 .. 2026-06-19 because node_modules was wiped
+# (git-ignored, so no git signal) -> ERR_MODULE_NOT_FOUND crashed the pipeline
+# before commit/deploy, into an unwatched log. The preflight check + EXIT-trap
+# alert + watchdog below exist to make that class of silent failure impossible.
 
 set -o pipefail
 ROOT="/Users/stuartkerr/Code/All In Expert"
@@ -15,10 +24,101 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] $*" | tee -a "$LOG_FILE"
 }
 
+# --- pinned toolchain: avoid the /usr/local node v22 vs /opt/homebrew v25
+#     ambiguity that the LaunchAgent PATH would otherwise resolve unpredictably.
+export PATH="$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+NODE="/opt/homebrew/bin/node"
+NPM="/opt/homebrew/bin/npm"
+
+# ntfy phone push. The topic IS the subscribe key on ntfy.sh — subscribe to it
+# once in the ntfy app to receive these. Hardcoded fallback (overridable via
+# AIE_NTFY_TOPIC env) so phone alerts survive .env rewrites.
+AIE_NTFY_TOPIC="${AIE_NTFY_TOPIC:-all-in-expert-kb-4f7b38f92c}"
+ntfy_push() {  # $1=title  $2=body  $3=priority(default high)  $4=tags(default warning)
+    [ -n "$AIE_NTFY_TOPIC" ] || return 0
+    curl -sf --max-time 10 -H "Title: $1" -H "Priority: ${3:-high}" -H "Tags: ${4:-warning}" \
+        -d "$2" "https://ntfy.sh/${AIE_NTFY_TOPIC}" >/dev/null 2>&1 || true
+}
+
+STATUS_FILE="$LOG_DIR/all-in-expert-weekly.status"
+# Timestamp of the last ACTUAL completed rebuild+deploy. Distinct from STATUS_FILE
+# on purpose: STATUS tracks "did the last run error?", REFRESH_TS_FILE tracks "when
+# did data last actually refresh?". The gate measures staleness against THIS file —
+# a daily skip must NOT touch it, or the 3-day clock would reset forever and the KB
+# would silently re-freeze.
+REFRESH_TS_FILE="$LOG_DIR/all-in-expert-last-refresh.ts"
+ALERT_LOG="$LOG_DIR/all-in-expert-ALERTS.log"
+LOCK_DIR="$LOG_DIR/all-in-expert-weekly.lock"
+CURRENT_STEP="startup"
+RUN_OK=0
+DID_FULL_RUN=0   # set to 1 only after a full pipeline completes (NOT on a gate skip)
+
+# --- single-instance lock (mkdir is atomic; flock is unavailable on macOS) ---
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "Another weekly-update run holds the lock — exiting."
+    exit 0
+fi
+
+# --- loud failure on ANY exit path. The 3-week silent outage happened because
+#     failures only landed in an unwatched logfile. This trap ends that: every
+#     non-OK exit writes a .status file, an ALERTS line, and a desktop alert.
+finish() {
+    local ec=$?
+    rmdir "$LOCK_DIR" 2>/dev/null
+    if [ "$RUN_OK" = "1" ]; then
+        echo "OK $(date '+%Y-%m-%dT%H:%M:%S%z')" > "$STATUS_FILE"
+        # Only a real rebuild advances the freshness clock — skips must not.
+        [ "$DID_FULL_RUN" = "1" ] && date '+%Y-%m-%dT%H:%M:%S%z' > "$REFRESH_TS_FILE"
+    else
+        echo "FAILED step=$CURRENT_STEP exit=$ec $(date '+%Y-%m-%dT%H:%M:%S%z')" > "$STATUS_FILE"
+        log "‼️ WEEKLY UPDATE FAILED at step: $CURRENT_STEP (exit $ec)"
+        echo "[$(date '+%F %T %Z')] FAILED step=$CURRENT_STEP exit=$ec" >> "$ALERT_LOG"
+        /usr/bin/osascript -e "display notification \"Failed at: $CURRENT_STEP — KB NOT updated\" with title \"⚠️ All-In Expert update FAILED\" sound name \"Basso\"" 2>/dev/null || true
+        ntfy_push "⚠️ All-In Expert update FAILED" "Failed at: $CURRENT_STEP (exit $ec). KB NOT updated — check all-in-expert-weekly.log" urgent "rotating_light"
+    fi
+}
+trap finish EXIT
+
+# --- staleness gate. Daily LaunchAgent passes "--if-stale 3": skip the rebuild
+#     only if the last ACTUAL rebuild (REFRESH_TS_FILE) was < N days ago. A skip
+#     does NOT advance that clock, so the cadence stays a true "every N days".
+#     Retry-on-failure is automatic: a failed run never writes REFRESH_TS_FILE,
+#     so the next day still reads as stale and re-runs (self-healing).
+if [ "$1" = "--if-stale" ]; then
+    MAXAGE="$2"; shift 2
+    LAST_REFRESH=""
+    [ -f "$REFRESH_TS_FILE" ] && LAST_REFRESH=$(cat "$REFRESH_TS_FILE" 2>/dev/null)
+    if [ -n "$LAST_REFRESH" ] && \
+       "$NODE" -e "const a=(Date.now()-Date.parse('$LAST_REFRESH'))/864e5;process.exit((a>=0&&a<$MAXAGE)?0:1)" 2>/dev/null; then
+        log "Last rebuild < ${MAXAGE}d ago ($LAST_REFRESH) — skipping (heartbeat)."
+        RUN_OK=1
+        exit 0
+    fi
+    log "Last rebuild missing or >= ${MAXAGE}d ago — refresh needed."
+fi
+
 log "═══ Weekly All-In Expert update starting ═══"
 cd "$ROOT" || { log "ERROR: Cannot cd to $ROOT"; exit 1; }
 
+# 0. Preflight — the EXACT guard for the 2026-05-30 outage. Verify required
+#    deps resolve; self-heal with npm ci if node_modules was wiped; fail loud
+#    if they still can't load (rather than crashing silently mid-pipeline).
+CURRENT_STEP="preflight (dependencies)"
+log "Preflight: verifying toolchain + dependencies..."
+[ -x "$NODE" ] || { log "ERROR: node missing at $NODE"; exit 1; }
+need=0
+for pkg in fast-xml-parser @xenova/transformers @ruvector/rvf ruvector; do
+    [ -d "node_modules/$pkg" ] || { log "  missing dep: $pkg"; need=1; }
+done
+if [ "$need" = "1" ]; then
+    log "Dependencies missing — self-healing via npm ci..."
+    "$NPM" ci >> "$LOG_FILE" 2>&1 || "$NPM" install >> "$LOG_FILE" 2>&1 || { log "ERROR: npm install failed"; exit 1; }
+fi
+"$NODE" --input-type=module -e "await import('fast-xml-parser');await import('@xenova/transformers');await import('@ruvector/rvf');" >> "$LOG_FILE" 2>&1 || { log "ERROR: required modules unresolved after install"; exit 1; }
+log "Preflight OK."
+
 # 1. Refresh RSS feed (get latest episodes)
+CURRENT_STEP="RSS download"
 log "Refreshing RSS feed..."
 curl -sL "https://rss.libsyn.com/shows/254861/destinations/1928300.xml" \
     -o "data/episodes/rss_feed.xml" || {
@@ -28,6 +128,7 @@ curl -sL "https://rss.libsyn.com/shows/254861/destinations/1928300.xml" \
 log "RSS feed refreshed ($(wc -c < data/episodes/rss_feed.xml) bytes)"
 
 # 2. Re-parse RSS into metadata JSON
+CURRENT_STEP="RSS parse"
 log "Parsing RSS metadata..."
 python3 -c "
 import xml.etree.ElementTree as ET
@@ -66,6 +167,7 @@ print(f'{len(episodes)} episodes')
 " >> "$LOG_FILE" 2>&1 || { log "ERROR: RSS parse failed"; exit 1; }
 
 # 3. Refresh YouTube video ID list
+CURRENT_STEP="YouTube catalog"
 log "Refreshing YouTube video catalog..."
 yt-dlp --flat-playlist --print "%(id)s\t%(title)s" \
     "https://www.youtube.com/@allin/videos" 2>/dev/null \
@@ -85,40 +187,66 @@ with open('data/episodes/all_video_ids.tsv','w') as f:
 fi
 
 # 4. Download any new episode captions
+CURRENT_STEP="caption download"
 log "Downloading new captions..."
 bash scripts/bulk-download.sh 500 >> "$LOG_FILE" 2>&1 || {
     log "WARN: Some caption downloads failed (continuing)"
 }
 
 # 5. Reprocess transcripts (includes new episodes)
+CURRENT_STEP="transcript processing"
 log "Reprocessing transcripts..."
-node scripts/process-captions.mjs >> "$LOG_FILE" 2>&1 || {
+"$NODE" scripts/process-captions.mjs >> "$LOG_FILE" 2>&1 || {
     log "ERROR: Transcript processing failed"
     exit 1
 }
 
 # 6. Rebuild knowledge base with real embeddings
+CURRENT_STEP="KB rebuild"
 log "Rebuilding knowledge base..."
 rm -f data/kb/all-in-expert.rvf 2>/dev/null
-node scripts/build-knowledge-base.mjs >> "$LOG_FILE" 2>&1 || {
+"$NODE" scripts/build-knowledge-base.mjs >> "$LOG_FILE" 2>&1 || {
     log "ERROR: KB rebuild failed"
     exit 1
 }
 
+# 6b. Build the SERVED semantic index in OpenAI vector space. build-knowledge-base
+#     (step 6) only writes MiniLM vectors to data/kb for the RVF build; the serve path
+#     embeds queries with OpenAI, so web/public/data/embeddings.bin MUST be OpenAI-space
+#     or cosine search returns noise. This script is the single owner of the served bin.
+CURRENT_STEP="OpenAI embeddings (served bin)"
+log "Building OpenAI embeddings (served bin)..."
+"$NODE" scripts/build-embeddings-openai.mjs >> "$LOG_FILE" 2>&1 || {
+    log "ERROR: OpenAI embedding build failed (OPENAI_API_KEY / OPEN_AI_KEY set?)"
+    exit 1
+}
+
+# 6c. Rebuild the TF-IDF / BM25 sparse index so new episodes are weighted correctly
+#     (route.ts reads idf.json + doc-lengths.json for the sparse retrieval leg).
+CURRENT_STEP="TF-IDF index"
+log "Rebuilding TF-IDF index..."
+"$NODE" scripts/build-idf.mjs >> "$LOG_FILE" 2>&1 || {
+    log "ERROR: TF-IDF index build failed"
+    exit 1
+}
+
 # 7. Rebuild chapter index (topics from show notes)
+CURRENT_STEP="chapter extraction"
 log "Rebuilding chapter index..."
-node scripts/extract-chapters.mjs >> "$LOG_FILE" 2>&1 || {
+"$NODE" scripts/extract-chapters.mjs >> "$LOG_FILE" 2>&1 || {
     log "ERROR: Chapter extraction failed"
     exit 1
 }
 
 # 8. Rebuild episode-dates for recency weighting
+CURRENT_STEP="episode dates"
 log "Rebuilding episode dates map..."
-node scripts/build-episode-dates.mjs >> "$LOG_FILE" 2>&1 || {
+"$NODE" scripts/build-episode-dates.mjs >> "$LOG_FILE" 2>&1 || {
     log "WARN: Episode dates build failed (continuing)"
 }
 
 # 9. Commit data changes
+CURRENT_STEP="git commit/push"
 log "Committing data changes..."
 cd "$ROOT"
 git add web/public/data/ data/kb/_manifest.json 2>/dev/null
@@ -137,6 +265,7 @@ Auto-generated by weekly-update.sh
 fi
 
 # 10. Deploy to Vercel — capture stdout so we can parse the new deployment URL
+CURRENT_STEP="vercel deploy"
 log "Deploying to Vercel..."
 cd "$ROOT/web"
 DEPLOY_OUT=$(vercel --prod --yes --scope stuart-kerrs-projects 2>&1)
@@ -162,8 +291,9 @@ fi
 # and we additionally wrap with `|| log "WARN: ..."` so even a fatal
 # script crash can't fail the weekly pipeline.
 cd "$ROOT"
+CURRENT_STEP="cache warm"
 log "Warming response cache..."
-node scripts/cache-warm.mjs >> "$LOG_FILE" 2>&1 || log "WARN: Cache warm partial"
+"$NODE" scripts/cache-warm.mjs >> "$LOG_FILE" 2>&1 || log "WARN: Cache warm partial"
 
 # 12. QA regression check — runs the 20-Q harness against prod, compares
 # vs data/qa/baseline.json, flags regressions in the log. Never blocks
@@ -171,8 +301,11 @@ node scripts/cache-warm.mjs >> "$LOG_FILE" 2>&1 || log "WARN: Cache warm partial
 # exits 1 on real quality regressions (which we log as WARN here so the
 # rest of the run still completes).
 cd "$ROOT"
+CURRENT_STEP="QA regression"
 log "Running QA regression check..."
-node scripts/qa-ci.mjs >> "$LOG_FILE" 2>&1 || log "WARN: QA regression detected"
+"$NODE" scripts/qa-ci.mjs >> "$LOG_FILE" 2>&1 || log "WARN: QA regression detected"
 
+RUN_OK=1
+DID_FULL_RUN=1
 log "═══ Weekly update complete ═══"
 echo "" >> "$LOG_FILE"

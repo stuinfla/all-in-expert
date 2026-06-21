@@ -28,14 +28,16 @@ log: "RVF not available (Durable write (fsync) failed: RVF error 0x0303: FsyncFa
 
 The API path (`route.ts:semanticSearch`) tries RVF first via
 `semanticSearchRvf()`; if RVF is missing it falls through to
-`semanticSearchBin()` over the flat `embeddings.bin`. At 31,215 vectors x
+`semanticSearchBin()` over the flat `embeddings.bin`. At 31,010 vectors x
 384 dims this O(n) cosine costs ~30ms per query — fine at this scale.
 HNSW would be sub-1ms but is not currently used in production due to the
 fsync error.
 
 ## Decision
 **Accept the fallback as the live path.** The bin scan is correct (same
-Xenova 384d embedding space) and fast enough for current corpus size.
+OpenAI 384d embedding space — the served `embeddings.bin` is rebuilt by
+`build-embeddings-openai.mjs` every refresh to match the OpenAI query
+vectors) and fast enough for current corpus size.
 The RVF path code stays in place so it activates automatically once the
 fsync issue is resolved upstream.
 

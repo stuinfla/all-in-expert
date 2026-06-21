@@ -260,17 +260,67 @@ const SPEAKER_ALIAS_LIST = Object.entries(SPEAKER_PROFILES).map(([key, profile])
 });
 
 /**
- * Detect the primary speaker in a text segment.
- * Returns the speakerKey of the first alias match, or 'unknown'.
+ * Detect whether an alias match at `pos` in `text` is being used as a vocative
+ * (the speaker is ADDRESSING this person, not speaking AS them). Vocatives are
+ * the dominant failure mode of first-mention attribution: when Jason says
+ * "Chamath, what do you think?", the old heuristic attributed that turn to
+ * Chamath because his name appeared first. This filter strips those signals.
+ *
+ * Patterns flagged as vocative:
+ *   • "<Name>," / "<Name>?" / "<Name>!" / "<Name>:" — comma/question/exclaim/colon right after
+ *   • ", <Name>" / "? <Name>" / "! <Name>" — preceded by sentence boundary punctuation
+ *   • "<Name>" at start of segment followed by punctuation within ~6 chars
+ */
+function isVocativeMatch(lower, pos, aliasLen) {
+  const after = lower.slice(pos + aliasLen, pos + aliasLen + 4);
+  if (/^\s*[,?!:]/.test(after)) return true;
+  const before = lower.slice(Math.max(0, pos - 6), pos);
+  if (/[,?!:]\s*$/.test(before)) return true;
+  // "hey/yo/look <Name>" addressing patterns
+  if (/\b(hey|yo|look|listen|ok|okay|so|alright|tell us|tell me|ask|tell)\s*$/.test(before)) return true;
+  return false;
+}
+
+/**
+ * Detect the primary speaker in a text segment by counting NON-VOCATIVE alias
+ * mentions per speaker. The speaker with the most non-vocative hits wins; ties
+ * resolve to the earliest non-vocative match. Pure-vocative segments (only
+ * addresses, no self-references) return 'unknown' so the secondary attribution
+ * pass can recover via neighbour anchors.
+ *
+ * Replaces a prior "first-alias-mention" heuristic that mis-attributed any
+ * "Chamath, what do you think?" address to Chamath (the addressee, not speaker).
  */
 function detectPrimarySpeaker(text) {
   const lower = text.toLowerCase();
+  const counts = {};
+  let firstNonVocativeKey = null;
+  let firstNonVocativePos = Infinity;
+
   for (const { key, regexes } of SPEAKER_ALIAS_LIST) {
     for (const re of regexes) {
-      if (re.test(lower)) return key;
+      const global = new RegExp(re.source, 'gi');
+      let m;
+      while ((m = global.exec(lower)) !== null) {
+        if (isVocativeMatch(lower, m.index, m[0].length)) continue;
+        counts[key] = (counts[key] || 0) + 1;
+        if (m.index < firstNonVocativePos) {
+          firstNonVocativePos = m.index;
+          firstNonVocativeKey = key;
+        }
+      }
     }
   }
-  return 'unknown';
+
+  let bestKey = null;
+  let bestCount = 0;
+  for (const [k, c] of Object.entries(counts)) {
+    if (c > bestCount) {
+      bestCount = c;
+      bestKey = k;
+    }
+  }
+  return bestKey || firstNonVocativeKey || 'unknown';
 }
 
 /**
@@ -729,10 +779,12 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
 
   console.log(`All ${vectors.length} embeddings generated in ${((Date.now() - start) / 1000).toFixed(1)}s`);
 
-  // Write precomputed embeddings as a flat Float32 binary file for
-  // serverless-friendly cosine similarity (bypasses @ruvector/rvf native module)
-  const WEB_DATA_EARLY = join(ROOT, 'web', 'public', 'data');
-  mkdirSync(WEB_DATA_EARLY, { recursive: true });
+  // Write precomputed MiniLM embeddings to data/kb ONLY — these feed the RVF build
+  // below. IMPORTANT: do NOT write web/public/data/embeddings.bin here. The SERVED
+  // bin must be OpenAI-space (queries are OpenAI-embedded at serve time) and is owned
+  // solely by scripts/build-embeddings-openai.mjs. Writing MiniLM vectors to the served
+  // path would put the index in the wrong vector space and make semantic search return
+  // noise — the exact bug that froze retrieval before the 2026-06-21 single-path fix.
   const embeddingsBin = new Float32Array(entries.length * DIMENSIONS);
   const idOrder = [];
   for (let i = 0; i < entries.length; i++) {
@@ -740,10 +792,8 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
     idOrder.push(entries[i].id);
   }
   writeFileSync(join(KB_DIR, 'embeddings.bin'), Buffer.from(embeddingsBin.buffer));
-  writeFileSync(join(WEB_DATA_EARLY, 'embeddings.bin'), Buffer.from(embeddingsBin.buffer));
   writeFileSync(join(KB_DIR, 'embeddings-order.json'), JSON.stringify(idOrder));
-  writeFileSync(join(WEB_DATA_EARLY, 'embeddings-order.json'), JSON.stringify(idOrder));
-  console.log(`Embeddings binary: ${entries.length} × ${DIMENSIONS} Float32 = ${(embeddingsBin.byteLength / 1024 / 1024).toFixed(1)}MB`);
+  console.log(`MiniLM embeddings (kb/ only, feeds RVF): ${entries.length} × ${DIMENSIONS} Float32 = ${(embeddingsBin.byteLength / 1024 / 1024).toFixed(1)}MB`);
 
   try {
     const { RvfDatabase } = await import('@ruvector/rvf');
@@ -824,23 +874,41 @@ async function buildRvfKnowledgeBase(entries, speakerProfiles) {
     if (existsSync(EPISODES_META_PATH) && existsSync(EPISODE_DATES_PATH)) {
       const metaList = JSON.parse(readFileSync(EPISODES_META_PATH, 'utf8'));
       const datesMap = JSON.parse(readFileSync(EPISODE_DATES_PATH, 'utf8'));
-      const byDate = {};
+      // Map<date, title[]>: bonus drops or back-to-back releases can share a
+      // date. The prior single-title map silently clobbered earlier titles.
+      const byDate = new Map();
       for (const ep of metaList) {
-        if (ep.date && ep.title) byDate[ep.date] = ep.title;
+        if (!ep.date || !ep.title) continue;
+        const arr = byDate.get(ep.date);
+        if (arr) arr.push(ep.title);
+        else byDate.set(ep.date, [ep.title]);
       }
+      // For multi-title dates, when more than one videoId resolves to the same
+      // date we round-robin assign across the title list to avoid every video
+      // colliding on a single title.
+      const dateAssignmentCursor = new Map();
       const episodeMeta = {};
+      let collisions = 0;
       for (const [videoId, date] of Object.entries(datesMap)) {
-        const title = byDate[date];
-        if (title) {
-          const epNumMatch = title.match(/\bE(\d{3,})\b/);
-          episodeMeta[videoId] = {
-            title,
-            ...(epNumMatch ? { episodeNumber: parseInt(epNumMatch[1], 10) } : {})
-          };
+        const titles = byDate.get(date);
+        if (!titles || titles.length === 0) continue;
+        let title;
+        if (titles.length === 1) {
+          title = titles[0];
+        } else {
+          collisions++;
+          const cursor = dateAssignmentCursor.get(date) || 0;
+          title = titles[cursor % titles.length];
+          dateAssignmentCursor.set(date, cursor + 1);
         }
+        const epNumMatch = title.match(/\bE(\d{3,})\b/);
+        episodeMeta[videoId] = {
+          title,
+          ...(epNumMatch ? { episodeNumber: parseInt(epNumMatch[1], 10) } : {})
+        };
       }
       writeFileSync(join(WEB_DATA_DIR, 'episode-meta.json'), JSON.stringify(episodeMeta));
-      console.log(`Episode metadata index: ${Object.keys(episodeMeta).length} entries → web/public/data/episode-meta.json`);
+      console.log(`Episode metadata index: ${Object.keys(episodeMeta).length} entries (${collisions} duplicate-date assignments) → web/public/data/episode-meta.json`);
     }
   } catch (err) {
     console.warn(`episode-meta.json generation failed (non-fatal): ${err.message}`);
