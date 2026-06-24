@@ -40,7 +40,7 @@ async function warmOne(entry, idx, total) {
   if (typeof entry.strict === 'boolean') body.strict = entry.strict;
 
   const headers = { 'Content-Type': 'application/json' };
-  if (BYPASS_TOKEN) headers['x-qa-bypass'] = BYPASS_TOKEN;
+  if (BYPASS_TOKEN) headers['x-qa-token'] = BYPASS_TOKEN;  // route.ts validates x-qa-token, NOT x-qa-bypass
 
   const label =
     `${idx + 1}/${total} ${entry.speaker ? `[${entry.speaker}${entry.strict ? '/strict' : ''}] ` : ''}"${entry.query.slice(0, 60)}"`;

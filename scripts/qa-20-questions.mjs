@@ -154,23 +154,23 @@ Respond in EXACT JSON format:
   "key_issue": "<most important thing to fix, or 'none' if great>"
 }`;
 
-  const r = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1536,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const text = r.content[0].type === 'text' ? r.content[0].text : '';
-  // Extract JSON from response
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) {
-    return { overall: 0, error: 'no json', raw: text };
-  }
-
-  try {
-    return JSON.parse(match[0]);
-  } catch {
-    return { overall: 0, error: 'parse failed', raw: text };
+  // Grade with up to 2 attempts. A transient unparseable grader response must
+  // mark the question UNGRADED (overall:null → excluded from the average), never
+  // a spurious 0 that the gate would read as a real failure.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const r = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1536,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = r.content[0].type === 'text' ? r.content[0].text : '';
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* malformed — fall through to retry */ }
+    }
+    if (attempt === 2) {
+      return { overall: null, ungraded: true, error: 'grader unparseable after retry', raw: text.slice(0, 200) };
+    }
   }
 }
 

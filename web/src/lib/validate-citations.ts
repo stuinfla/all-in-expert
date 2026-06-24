@@ -414,10 +414,10 @@ Rules:
     const res = await client.messages.create(
       {
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
+        max_tokens: 4000,                                   // was 2000 — truncated hedged answers mid-sentence
         temperature: 0.2,
         system: systemPrompt,
-        messages: [{ role: 'user', content: draftReport.slice(0, 3500) }],
+        messages: [{ role: 'user', content: draftReport.slice(0, 12000) }],  // was 3500 — cut long drafts before rewrite
       },
       { signal: controller.signal }
     );
@@ -453,12 +453,16 @@ export async function appendVerifierStats(stats: VerifierStatsLogEntry): Promise
     // Node-only — guard against any edge-runtime importer.
     const fs = await import('fs');
     const path = await import('path');
-    // Walk up from cwd to find data/qa/. In `web/` runtime the QA dir lives
-    // one level up at ../data/qa/. We try both.
-    const candidates = [
-      path.join(process.cwd(), 'data', 'qa', 'verifier-stats.jsonl'),
-      path.join(process.cwd(), '..', 'data', 'qa', 'verifier-stats.jsonl'),
-    ];
+    // Vercel filesystem is read-only outside /tmp. Prefer /tmp on Vercel so the
+    // JSONL aggregate actually persists for the lifetime of the lambda; locally,
+    // prefer the repo's data/qa/ so dev-time telemetry stays alongside QA fixtures.
+    const onVercel = !!process.env.VERCEL;
+    const candidates = onVercel
+      ? ['/tmp/verifier-stats.jsonl']
+      : [
+          path.join(process.cwd(), 'data', 'qa', 'verifier-stats.jsonl'),
+          path.join(process.cwd(), '..', 'data', 'qa', 'verifier-stats.jsonl'),
+        ];
     const target = candidates.find((p) => fs.existsSync(path.dirname(p))) ?? candidates[0];
     const line =
       JSON.stringify({

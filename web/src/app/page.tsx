@@ -436,13 +436,15 @@ export default function Home() {
     const SESSION_KEY = "aie_visit_recorded";
     const RATING_KEY = "aie_user_rating";
     try {
+      // Load real counts immediately so the number appears fast — do NOT gate it
+      // behind the visit POST (that round-trip was the source of the stale-number lag).
+      loadStats();
       if (!sessionStorage.getItem(SESSION_KEY)) {
         sessionStorage.setItem(SESSION_KEY, "1");
+        // Bump the counter once per session, then refresh stats when it lands.
         fetch("/api/visit", { method: "POST" })
           .then(() => loadStats())
-          .catch(() => loadStats());
-      } else {
-        loadStats();
+          .catch(() => {});
       }
       const prior = localStorage.getItem(RATING_KEY);
       if (prior) {
@@ -742,7 +744,7 @@ export default function Home() {
                 <span className="w-2 h-2 rounded-full bg-[var(--gold)] anim-shimmer"></span>
                 <div className="font-mono text-[9px] sm:text-[10px] tracking-widest uppercase">
                   <span className="text-[var(--gold-bright)]">
-                    {((engagement?.visitors ?? 0) + VISITOR_OFFSET).toLocaleString()}
+                    {engagement ? (engagement.visitors + VISITOR_OFFSET).toLocaleString() : "—"}
                   </span>{" "}
                   <span className="text-[var(--ink-mute)]">viewers</span>
                 </div>

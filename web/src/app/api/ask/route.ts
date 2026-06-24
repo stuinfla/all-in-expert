@@ -10,7 +10,12 @@ import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, append
 import { checkRateLimit, recordCall, isQaBypass } from '@/lib/rate-limit';
 import { appendPerfStats } from '@/lib/perf-stats';
 
-export const maxDuration = 60;
+// Bumped from 60s → 120s. The pipeline (hybrid retrieval → MMR → cross-encoder
+// rerank → synthesis → citation validation → claim verification → optional
+// hedge rewrite) regularly touches 35-50s on cache miss; the prior 60s ceiling
+// was producing 504s on cold starts. Verification stays inline because the
+// hedged/cleaned report is the user-facing artifact, not a side-channel.
+export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
 
 // ─── AIMDS middleware (CLAUDE.md Rule 8) ─────────────────────────
@@ -35,12 +40,12 @@ interface ContentEntry {
 
 // ─── Lazy caches ────────────────────────────────────────────────
 let contentIndexCache: Record<string, ContentEntry> | null = null;
-let embedderCache: any = null;
 let rvfCache: any = null;
 let episodeDatesCache: Record<string, string> | null = null;
 let embeddingsBinCache: Float32Array | null = null;
 let embeddingsOrderCache: string[] | null = null;
 const EMBEDDING_DIMS = 384;
+const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 function getEmbeddingsBin(): { bin: Float32Array; order: string[] } | null {
   if (embeddingsBinCache && embeddingsOrderCache) {
@@ -51,12 +56,11 @@ function getEmbeddingsBin(): { bin: Float32Array; order: string[] } | null {
     const orderPath = join(DATA_DIR, 'embeddings-order.json');
     if (!existsSync(binPath) || !existsSync(orderPath)) return null;
     const buf = readFileSync(binPath);
-    // View the buffer as Float32Array
-    embeddingsBinCache = new Float32Array(
-      buf.buffer,
-      buf.byteOffset,
-      buf.byteLength / 4
-    );
+    // Copy into a fresh ArrayBuffer to guarantee 4-byte alignment for Float32Array.
+    // Node's Buffer pool may hand out non-4-aligned byteOffsets for small/shared
+    // buffers; slicing forces a dedicated, properly-aligned ArrayBuffer.
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    embeddingsBinCache = new Float32Array(ab);
     embeddingsOrderCache = JSON.parse(readFileSync(orderPath, 'utf8'));
     return { bin: embeddingsBinCache, order: embeddingsOrderCache! };
   } catch (err) {
@@ -241,26 +245,7 @@ function recencyWeight(videoId: string, halfLife = 180, floor = 0.4): number {
   return Math.max(floor, floor + (1 - floor) * Math.exp(-ageDays / halfLife));
 }
 
-async function getEmbedder() {
-  if (embedderCache) return embedderCache;
-  try {
-    console.log('[getEmbedder] loading @xenova/transformers...');
-    const { pipeline, env } = await import('@xenova/transformers');
-    (env as any).allowRemoteModels = true;
-    (env as any).allowLocalModels = true;
-    // Use /tmp for model cache on Vercel (only writable path)
-    (env as any).cacheDir = '/tmp/xenova-cache';
-    console.log('[getEmbedder] calling pipeline()...');
-    embedderCache = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-      quantized: true,
-    });
-    console.log('[getEmbedder] pipeline ready');
-    return embedderCache;
-  } catch (err) {
-    console.error('[getEmbedder] failed to load:', err);
-    throw err;
-  }
-}
+
 
 async function getRvf() {
   if (rvfCache) return rvfCache;
@@ -276,17 +261,47 @@ async function getRvf() {
 }
 
 /**
- * Embed the query using local Xenova/all-MiniLM-L6-v2 (384 dims, mean-pool + L2-normalize).
- * Matches the embedding space of the precomputed doc vectors in embeddings.bin and the RVF index,
- * both of which are built by build-knowledge-base.mjs using the same model.
- * No external API call — runs locally via ONNX.
+ * Embed the query using OpenAI text-embedding-3-small @ 384 dims, L2-normalized.
+ * Matches the embedding space of the precomputed doc vectors in embeddings.bin
+ * (built by scripts/build-embeddings-openai.mjs using the same model and dim).
+ * Using the same model on both sides is required for cosine similarity to be
+ * meaningful — an earlier version embedded the query with a different local
+ * model, which silently broke semantic retrieval.
  */
 async function embedQuery(query: string): Promise<Float32Array> {
-  const embedder = await getEmbedder();
-  const result = await embedder(query, { pooling: 'mean', normalize: true });
+  const apiKey = process.env.OPEN_AI_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPEN_AI_KEY/OPENAI_API_KEY not configured — required for query embedding');
+  }
+  const res = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: EMBEDDING_MODEL,
+      input: query,
+      dimensions: EMBEDDING_DIMS,
+      encoding_format: 'float',
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`OpenAI embeddings ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const raw: number[] = data?.data?.[0]?.embedding;
+  if (!Array.isArray(raw) || raw.length !== EMBEDDING_DIMS) {
+    throw new Error(`Unexpected embedding shape: ${raw?.length}`);
+  }
+  // L2-normalize so cosine == dot product against the pre-normalized doc vectors
+  let norm = 0;
+  for (let i = 0; i < EMBEDDING_DIMS; i++) norm += raw[i] * raw[i];
+  norm = Math.sqrt(norm);
   const vec = new Float32Array(EMBEDDING_DIMS);
-  for (let i = 0; i < EMBEDDING_DIMS; i++) {
-    vec[i] = result.data[i];
+  if (norm > 0) {
+    for (let i = 0; i < EMBEDDING_DIMS; i++) vec[i] = raw[i] / norm;
   }
   return vec;
 }
@@ -503,28 +518,37 @@ async function semanticSearchRvf(
 }
 
 /**
- * Semantic search: try RVF (HNSW) first, fall back to bin+cosine, then TF-IDF.
- * Both RVF and embeddings.bin are built with Xenova/all-MiniLM-L6-v2 (384d), matching
- * the query embedding produced by embedQuery(). RVF-first per CLAUDE.md Rule 5.
+ * Semantic search: prefer RVF (HNSW) only when its index was built in the same
+ * embedding space as the query model (text-embedding-3-small @ 384d). Otherwise
+ * fall back to the flat binary scan over embeddings.bin (which IS rebuilt by
+ * scripts/build-embeddings-openai.mjs and therefore guaranteed to match).
+ *
+ * Set ENABLE_RVF=1 once the RVF file has been rebuilt with OpenAI vectors.
+ * Until then, querying the MiniLM-built RVF with OpenAI query vectors would
+ * produce noise — exactly the bug the OpenAI re-embedding was meant to fix.
  */
 async function semanticSearch(query: string, limit = 30, speakerFilter?: string | null) {
   await getContentIndex();
 
-  // Tier 1: RVF (HNSW) — fastest and highest quality when native module loads.
-  const rvfResults = await semanticSearchRvf(query, limit, speakerFilter);
-  if (rvfResults && rvfResults.length > 0) {
-    return { results: rvfResults, mode: 'rvf' as const };
+  // Tier 1: RVF (HNSW) — opt-in until index is rebuilt in the OpenAI vector space.
+  if (process.env.ENABLE_RVF === '1') {
+    const rvfResults = await semanticSearchRvf(query, limit, speakerFilter);
+    if (rvfResults && rvfResults.length > 0) {
+      return { results: rvfResults, mode: 'rvf' as const };
+    }
   }
 
-  // Tier 2: flat binary scan — same vector space, ~30ms for 15k vectors.
-  // Falls back here when RVF native module fails to load in Vercel serverless.
+  // Tier 2: flat binary scan — same vector space as the query (OpenAI 384d),
+  // ~30ms for 15k vectors. This is the primary semantic path until RVF is rebuilt.
   const binResults = await semanticSearchBin(query, limit, speakerFilter);
   if (binResults && binResults.length > 0) {
     return { results: binResults, mode: 'semantic' as const };
   }
 
   // All dense paths exhausted — return empty so hybridSearch can merge with tfidf.
-  return { results: [] as Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>, mode: 'semantic' as const };
+  // Reported as 'empty' (not 'semantic') so downstream can distinguish a successful
+  // semantic search that happened to return zero from one where every dense path failed.
+  return { results: [] as Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>, mode: 'empty' as const };
 }
 
 // ─── BM25-Okapi sparse search (function name kept for backward compat) ────────
@@ -856,11 +880,14 @@ function mmrRerank(
 
       let score = lambda * relevance[i] - (1 - lambda) * maxSim;
 
-      // Same-episode penalty: if this episode already has a chunk selected,
-      // apply a 0.5 diversity multiplier to the score.
-      const episodeId = candidates[i].entry.v;
-      if ((selectedEpisodes.get(episodeId) ?? 0) > 0) {
-        score *= 0.5;
+      // Same-episode penalty: subtract a fixed amount per prior chunk from the
+      // same episode. Subtraction (rather than multiplication) is required so
+      // negative scores get more negative — multiplying by 0.5 would make a
+      // negative score larger and accidentally REWARD same-episode duplicates.
+      const SAME_EPISODE_PENALTY = 0.15;
+      const sameEpCount = selectedEpisodes.get(candidates[i].entry.v) ?? 0;
+      if (sameEpCount > 0) {
+        score -= SAME_EPISODE_PENALTY * sameEpCount;
       }
 
       if (score > bestScore) {
@@ -1224,7 +1251,10 @@ export async function POST(req: NextRequest) {
         speakers: r.entry.m,
         speakerKey: r.entry.sk || null, // primary speaker from per-turn chunker
         quote: truncateQuoteForFairUse(r.entry.c, query),
-        relevance: Number((1 - r.distance).toFixed(3)),
+        // Use rawDistance (pre-recency) for the user-facing score so old episodes
+        // with low recency weight don't render as negative relevance percentages.
+        // The recency-adjusted `distance` is kept internal for ranking only.
+        relevance: Number(Math.max(0, Math.min(1, 1 - r.rawDistance)).toFixed(3)),
       };
     });
 
@@ -1477,15 +1507,22 @@ Format for topical:
 5. **## Where they split** — 2-3 disagreement bullets that show WHICH BESTIES disagree and why (this is a position-comparison section — make the differences explicit, e.g. "Chamath thinks X [1]; Sacks thinks Y [3]")
 6. **Confidence:** HIGH/MEDIUM/LOW
 
+GROUNDING DISCIPLINE — fabrication is the #1 grading failure; obey strictly:
+- Every specific number, name, statistic, mechanism, or quote MUST come from a cited segment [N]. If it is not in the segments, do NOT write it — plausibility is not grounding.
+- NEVER contradict a citation: if [N] says "33 reactors", you may not write "a hundred reactors".
+- Attribute each turn to the bestie the cited segment is tagged to. If a segment's speaker is unknown, do not put its words in a specific bestie's mouth.
+- If the segments only thinly cover the question, say so briefly ("they haven't gone deep on this") instead of inventing an exchange. A short honest answer beats a long fabricated one.
+
 SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descriptions from 2022).
 ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitly — not just "there's debate" but "Chamath argues X while Sacks argues Y." This is the analytical value of the round-table format.`;
     }
 
     const client = new Anthropic({ apiKey });
-    // Speaker-focused queries get Sonnet — tighter citation discipline is
-    // worth the 15× cost on low-volume, high-scrutiny single-bestie queries.
-    // Dialogue/forecast paths stay on Haiku for speed + cost.
-    const model = focus ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+    // Sonnet 4.6 for ALL queries (was: Haiku 4.5 for multi-bestie dialogue/forecast).
+    // Haiku misattributed speakers + fabricated specifics — the dominant QA failure
+    // mode (2026-06-24). Sonnet holds multi-speaker grounding + citation discipline
+    // far better. Bump to 'claude-opus-4-8' for max quality if cost/latency allow.
+    const model = 'claude-sonnet-4-6';
 
     // ─── SSE streaming branch ────────────────────────────────────────
     // Frontend opts in via `Accept: text/event-stream`. We stream raw
@@ -1512,7 +1549,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
             let collected = '';
             const stream = client.messages.stream({
               model,
-              max_tokens: 1800,
+              max_tokens: 4000,
               temperature: 0.3,
               system: systemPrompt,
               messages: [{ role: 'user', content: userPrompt }],
@@ -1712,7 +1749,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
     // ─── Non-streaming JSON fallback (legacy) ────────────────────────
     const response = await client.messages.create({
       model,
-      max_tokens: 1800,
+      max_tokens: 4000,
       temperature: 0.3,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
