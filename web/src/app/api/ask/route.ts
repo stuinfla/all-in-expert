@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { cacheLookupMem, cacheLookupPiBrain, cacheStore, CachedResponse } from '@/lib/pi-brain';
 import { rerank } from '@/lib/rerank';
-import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, appendVerifierStats } from '@/lib/validate-citations';
+import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, appendVerifierStats, verifySpeakerAttribution, repairSpeakerAttribution } from '@/lib/validate-citations';
 import { checkRateLimit, recordCall, isQaBypass } from '@/lib/rate-limit';
 import { appendPerfStats } from '@/lib/perf-stats';
 
@@ -1004,7 +1004,9 @@ export async function POST(req: NextRequest) {
       speaker: speaker || null,
       mode: mode || null,
     };
-    const memHit = cacheLookupMem(cacheKey);
+    // QA/eval requests (validated bypass token) MUST skip the cache so the harness
+    // always measures live code — a cache hit would grade a stale, pre-change answer.
+    const memHit = qaBypassActive ? null : cacheLookupMem(cacheKey);
     if (memHit) {
       // Re-compute corpus freshness on every cache hit so the frontend's
       // "Corpus current as of [date]" indicator stays populated. The helper
@@ -1054,7 +1056,7 @@ export async function POST(req: NextRequest) {
     // isTopical: opinion/speaker queries use tighter recency (90d half-life,
     // 0.15 floor); biographical/factual mode keeps the wider 180d/0.4 defaults.
     const isTopical = !mode || mode === 'topical' || !!speaker;
-    const piBrainPromise = cacheLookupPiBrain(cacheKey).catch(() => null);
+    const piBrainPromise = qaBypassActive ? Promise.resolve(null) : cacheLookupPiBrain(cacheKey).catch(() => null);
     const retrievalPromise = (async () => {
       if (speaker) {
         // ─── Strict speaker mode ─────────────────────────────────────
@@ -1185,15 +1187,33 @@ export async function POST(req: NextRequest) {
     const tRerank = Date.now() - reqStart;
 
     // Build citation-enriched segment text for the LLM
-    // Include episode date so Claude can apply the recency rule
+    // Include episode date so Claude can apply the recency rule.
+    // SPEAKER ATTRIBUTION FIX (2026-06-24): the synthesis prompt now receives the
+    // PRIMARY speaker (`sk` — who actually SPOKE the turn), NOT `m` (who is merely
+    // MENTIONED in the text). Feeding `m` caused systemic misattribution — a segment
+    // Elon spoke that *mentioned* "Chamath" was being voiced as Chamath (QA q02/q12/q14).
+    // `sk` is 90.8% high-confidence direct text-match; `unknown`/`likely_` are surfaced
+    // as "uncertain"/"(probable)" so the model won't fabricate a speaker.
     const epDates = getEpisodeDates();
+    const SPEAKER_DISPLAY: Record<string, string> = {
+      chamath: 'Chamath', sacks: 'David Sacks', friedberg: 'David Friedberg',
+      calacanis: 'Jason Calacanis', jason: 'Jason Calacanis', elon: 'Elon Musk',
+    };
+    const speakerLabel = (sk?: string | null): string | null => {
+      if (!sk || sk === 'unknown') return null;
+      const probable = sk.startsWith('likely_');
+      const key = probable ? sk.slice('likely_'.length) : sk;
+      const name = SPEAKER_DISPLAY[key] || key.charAt(0).toUpperCase() + key.slice(1);
+      return probable ? `${name} (probable)` : name;
+    };
     const segmentText = results
       .slice(0, SEGMENT_BUDGET)
       .map((r, i) => {
         const topics = r.entry.p.join(', ');
-        const speakers = r.entry.m.length > 0 ? ` · voices: ${r.entry.m.join(', ')}` : '';
+        const spoken = speakerLabel(r.entry.sk);
+        const spokenBy = ` · SPOKEN BY: ${spoken ?? 'uncertain'}`;
         const epDate = epDates[r.entry.v] || 'date-unknown';
-        return `[${i + 1}] episode-date: ${epDate} · timestamp: ${r.entry.t} · topics: ${topics}${speakers}\nSEGMENT: "${r.entry.c.slice(0, 600)}"`;
+        return `[${i + 1}] episode-date: ${epDate} · timestamp: ${r.entry.t} · topics: ${topics}${spokenBy}\nSEGMENT: "${r.entry.c.slice(0, 600)}"`;
       })
       .join('\n\n');
 
@@ -1510,10 +1530,15 @@ Format for topical:
 GROUNDING DISCIPLINE — fabrication is the #1 grading failure; obey strictly:
 - Every specific number, name, statistic, mechanism, or quote MUST come from a cited segment [N]. If it is not in the segments, do NOT write it — plausibility is not grounding.
 - NEVER contradict a citation: if [N] says "33 reactors", you may not write "a hundred reactors".
-- Attribute each turn to the bestie the cited segment is tagged to. If a segment's speaker is unknown, do not put its words in a specific bestie's mouth.
+- SPEAKER ATTRIBUTION IS AUTHORITATIVE: every segment shows "SPOKEN BY: <name>" — that is who actually said those words. When you voice a turn or attribute a view, it MUST match the SPOKEN BY tag of the segment you cite with [N].
+- NEVER reassign one person's words to another. Guests (Elon Musk, Peter Thiel, Brad Gerstner, etc.) are NOT the four besties — if [N] is SPOKEN BY Elon Musk, you may NOT present it as Chamath's, Sacks's, Friedberg's, or Jason's own view. A bestie may REACT to it ("Sacks pushes back on Elon's point [N]"), but the words stay with their real speaker.
+- If a segment is "SPOKEN BY: uncertain", do NOT assign it to a named person — paraphrase neutrally ("one of the group argued [N]") or leave it out.
 - If the segments only thinly cover the question, say so briefly ("they haven't gone deep on this") instead of inventing an exchange. A short honest answer beats a long fabricated one.
 
-SHORT turns (1-3 sentences). Real voices. Current reality (not old self-descriptions from 2022).
+VOICE — HARD CONSTRAINT (turns being too long/essay-like is a top grading failure):
+- Every turn is 1-3 sentences, ~45 words MAX. No multi-paragraph monologues. No turn that reads like a written analysis or white paper.
+- This is fast, interruptive banter. If a bestie would keep going, another bestie cuts in instead. Punchy beats thorough.
+- Real voices, current reality (not old self-descriptions from 2022).
 ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitly — not just "there's debate" but "Chamath argues X while Sacks argues Y." This is the analytical value of the round-table format.`;
     }
 
@@ -1522,7 +1547,10 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
     // Haiku misattributed speakers + fabricated specifics — the dominant QA failure
     // mode (2026-06-24). Sonnet holds multi-speaker grounding + citation discipline
     // far better. Bump to 'claude-opus-4-8' for max quality if cost/latency allow.
-    const model = 'claude-sonnet-4-6';
+    const model = process.env.SYNTH_MODEL || 'claude-sonnet-4-6';
+    // Opus 4.8 deprecates the `temperature` param (400s if sent); omit it for Opus.
+    // The Anthropic SDK drops undefined keys, so this cleanly removes the param.
+    const synthTemperature = model.includes('opus') ? undefined : 0.3;
 
     // ─── SSE streaming branch ────────────────────────────────────────
     // Frontend opts in via `Accept: text/event-stream`. We stream raw
@@ -1550,7 +1578,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
             const stream = client.messages.stream({
               model,
               max_tokens: 4000,
-              temperature: 0.3,
+              temperature: synthTemperature,
               system: systemPrompt,
               messages: [{ role: 'user', content: userPrompt }],
             });
@@ -1570,8 +1598,23 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
               }
             }
 
+            // ─── Speaker-attribution repair (deterministic detect → scoped fix) ──
+            // The #1 score-limiter: guest/wrong-host words voiced as a bestie's own.
+            // Detect violations by comparing each [N]'s sk to the turn it sits under,
+            // then repair only those. Runs first so downstream grounding checks see
+            // the corrected attribution.
+            // Speaker verifier default OFF: clean A/B (2026-06-25) showed it's a no-op
+            // (overall -0.3, citations flat) — it catches real misattributions but the
+            // repair doesn't move the grade. Kept behind ENABLE_ATTR_VERIFIER for future
+            // retrieval-side work; detection is cheap if we want telemetry later.
+            const attrViolationsSse = process.env.ENABLE_ATTR_VERIFIER === '1' ? verifySpeakerAttribution(collected, citations) : [];
+            const attributedReportSse =
+              attrViolationsSse.length > 0
+                ? await repairSpeakerAttribution(collected, attrViolationsSse, apiKey)
+                : collected;
+
             // ─── Post-stream validation + citation annotation ─────────
-            const validation = await validateCitations(collected, citations, apiKey);
+            const validation = await validateCitations(attributedReportSse, citations, apiKey);
             const verdictMap = new Map(validation.verdicts.map((v) => [v.n, v.verdict]));
             const annotatedCitations = citations.map((c) => ({
               ...c,
@@ -1642,7 +1685,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
             // QA bypass: don't burn the user budget on harness runs.
             const rlAfter = qaBypassActive ? rl : recordCall();
 
-            after(() => cacheStore(cacheKey, finalPayload));
+            if (!qaBypassActive) after(() => cacheStore(cacheKey, finalPayload));
             after(async () => {
               try {
                 const outboundCheck = await aidefence.detect(finalReportSse);
@@ -1750,18 +1793,29 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
     const response = await client.messages.create({
       model,
       max_tokens: 4000,
-      temperature: 0.3,
+      temperature: synthTemperature,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
 
     const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
 
+    // ─── Speaker-attribution repair (deterministic detect → scoped fix) ──
+    // The #1 score-limiter: guest/wrong-host words voiced as a bestie's own.
+    // Detect by comparing each [N]'s sk to the turn it sits under, repair only
+    // those, then run grounding checks on the corrected attribution.
+    // Speaker verifier default OFF — proven no-op in clean A/B (see SSE path note).
+    const attrViolations = process.env.ENABLE_ATTR_VERIFIER === '1' ? verifySpeakerAttribution(rawText, citations) : [];
+    const attributedReport =
+      attrViolations.length > 0
+        ? await repairSpeakerAttribution(rawText, attrViolations, apiKey)
+        : rawText;
+
     // ─── Post-synthesis citation validator ─────────────────────────
     // Verifies each [N] marker actually points to a segment that supports
     // the claim. Strips markers with verdict=NO; flags PARTIAL in metadata.
     // Adds ~1-2s on cache-miss; cached responses are pre-validated.
-    const validation = await validateCitations(rawText, citations, apiKey);
+    const validation = await validateCitations(attributedReport, citations, apiKey);
 
     // Annotate citations with verdicts so the frontend can render warnings
     const verdictMap = new Map(validation.verdicts.map((v) => [v.n, v.verdict]));
@@ -1837,7 +1891,7 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
 
     // Write-through to pi-brain for future cache hits. Runs AFTER the response
     // is sent so the user doesn't pay for network round-trip on a miss.
-    after(() => cacheStore(cacheKey, payload));
+    if (!qaBypassActive) after(() => cacheStore(cacheKey, payload));
 
     // ─── AIMDS outbound scan (audit only, does not gate response) ──
     // Scans the synthesized report for any inadvertent PII leakage or

@@ -34,7 +34,8 @@ import Anthropic from '@anthropic-ai/sdk';
 export interface Citation {
   n: number;
   quote?: string;
-  speakers?: string[];
+  speakers?: string[]; // who is MENTIONED in the segment (the `m` field) — NOT who spoke it
+  speakerKey?: string | null; // PRIMARY speaker (`sk`) — who actually SPOKE the segment
   topics?: string[];
   [k: string]: unknown;
 }
@@ -377,11 +378,37 @@ ${draftReport.slice(0, 3000)}`;
   }
 }
 
-// ─── Hallucination gate: rewriteToHedge ─────────────────────────────────────
+/**
+ * FAIL-SAFE guard for every LLM rewrite pass. An LLM cleanup step can occasionally
+ * return a refusal, a meta-commentary ("I'm the EXCISER, I need to clarify..."), or a
+ * near-empty stub instead of the rewritten text (this destroyed q13, 2026-06-25). A
+ * cleanup must only ever improve or no-op — NEVER replace a real answer with garbage.
+ * If the output looks degenerate, discard it and keep the original.
+ */
+function safeRewrite(original: string, rewritten: string | undefined): string {
+  const r = (rewritten || '').trim();
+  if (!r) return original;
+  // Too short relative to the source → likely a refusal/stub.
+  if (r.length < Math.min(400, original.length * 0.5)) return original;
+  // Lost the roundtable dialogue structure it should have preserved.
+  const origMarkers = (original.match(/\*\*/g) || []).length;
+  const newMarkers = (r.match(/\*\*/g) || []).length;
+  if (origMarkers >= 4 && newMarkers < origMarkers / 2) return original;
+  // Opens with meta-commentary / preamble instead of the content.
+  if (/^(I appreciate|I'm the|I am the|I need to clarify|I cannot|I can't|I should|My role|My instruction|Sure[,!]|Here is|Here's the|Okay|Understood|As an? (AI|assistant|editor))/i.test(r)) {
+    return original;
+  }
+  return r;
+}
+
+// ─── Hallucination gate: rewriteToHedge (EXCISE mode) ───────────────────────
 //
-// Takes the draft report and a list of UNGROUNDED claim strings, then rewrites
-// the offending sentences to remove or soften the unsupported specifics while
-// preserving the overall voice and structure. Uses Claude Haiku 4.5.
+// Takes the draft report and a list of UNGROUNDED claim strings, then EXCISES
+// the unsupported specifics — deleting the claim (and its sentence/turn when the
+// assertion depends on it) rather than softening it into a vague hedge. Soft
+// hedges ("substantial", "in the ballpark of") still imply a fact existed and
+// were the dominant fabrication-grading failure (2026-06-25); removal is the fix.
+// Name kept for call-site stability; behavior is excision. Uses Claude Haiku 4.5.
 
 export async function rewriteToHedge(
   draftReport: string,
@@ -393,18 +420,18 @@ export async function rewriteToHedge(
   const t0 = Date.now();
   const claimList = ungroundedClaims.map((c, i) => `${i + 1}. ${c}`).join('\n');
 
-  const systemPrompt = `Rewrite the following text to REMOVE specific unsupported claims. Replace them with generic hedges. Keep voice and structure. The text is written in the voices of podcast hosts — preserve their speaking style, use of first person, and conversational tone.
+  const systemPrompt = `You are a fabrication EXCISER. The text below is a podcast-host roundtable. The listed claims have NO citation support — they are fabrications. EXCISE them: delete the unsupported specific and, if a sentence's core assertion depends on it, delete the whole sentence. Do NOT soften, do NOT paraphrase into a vague hedge — REMOVE.
 
-Specifically, these claims have no citation support and must be softened or dropped:
+Fabricated claims to excise (no citation supports these):
 ${claimList}
 
 Rules:
-- Do NOT add new specific claims not in the original
-- Do NOT change the overall argument or structure
-- Use phrases like "in the ballpark of", "substantial", "significant", "considerable", "reportedly" as replacements for unsupported specifics
-- If a claim is a legislative name (e.g. "Section 338 of the tariff act"), replace with a generic reference (e.g. "the relevant tariff provision")
-- Keep citation markers [N] that were already present
-- Output ONLY the rewritten text, no preamble`;
+- DELETE each fabricated specific (number, %, $ amount, date, name, statute, study, title). Do not replace it with "substantial"/"significant"/"in the ballpark of" — those vague hedges still imply a fact existed. Cut the assertion.
+- If removing the specific leaves a sentence that no longer says anything, delete the sentence. If a host's turn becomes empty, delete that turn's header too.
+- It is BETTER to have a shorter, fully-grounded answer than a longer one padded with hedged fabrications. A turn that just says "we haven't gone deep on the specifics here" is acceptable.
+- Do NOT add any new claim, number, or detail not in the original.
+- Preserve all GROUNDED content and every citation marker [N] that sits on content you keep, verbatim.
+- Keep each remaining turn punchy (1-3 sentences). Output ONLY the rewritten text, no preamble.`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REWRITE_TIMEOUT_MS);
@@ -423,11 +450,167 @@ Rules:
     );
 
     const rewritten = res.content[0]?.type === 'text' ? res.content[0].text : draftReport;
-    console.log(`[rewrite-hedge] rewrote ${ungroundedClaims.length} ungrounded claims in ${Date.now() - t0}ms`);
-    return rewritten;
+    const safe = safeRewrite(draftReport, rewritten);
+    console.log(`[excise] removed ${ungroundedClaims.length} ungrounded claims in ${Date.now() - t0}ms${safe === draftReport && rewritten !== draftReport ? ' (DISCARDED degenerate rewrite)' : ''}`);
+    return safe;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.log(`[rewrite-hedge] failed after ${Date.now() - t0}ms: ${msg}`);
+    return draftReport;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── Deterministic speaker-attribution verifier + repair ────────────────────
+//
+// THE #1 score-limiter (QA 2026-06-25, triple-confirmed): the synthesis assigns
+// content from citation [N] to a bestie even when [N]'s ACTUAL speaker (`sk`) is a
+// guest (Elon/Gerstner/Gurley/Cuban/…) or a different host. Prompt instructions do
+// NOT reliably stop this. So we DETECT it deterministically (compare each [N]'s sk
+// to the turn it's voiced under) and REPAIR only the detected violations with a
+// tightly-scoped LLM pass — deterministic detection means the check can't silently
+// pass, and constraining the repair to known violations limits new errors.
+
+const HOST_KEYS = new Set(['chamath', 'sacks', 'friedberg', 'calacanis']);
+const SPEAKER_DISPLAY: Record<string, string> = {
+  chamath: 'Chamath', sacks: 'David Sacks', friedberg: 'David Friedberg',
+  calacanis: 'Jason Calacanis', jason: 'Jason Calacanis', elon: 'Elon Musk',
+  gerstner: 'Brad Gerstner', gurley: 'Bill Gurley', cuban: 'Mark Cuban',
+  thiel: 'Peter Thiel', baker: 'a guest (Baker)',
+};
+
+/** Map a citation's `sk` to a comparable key; null = unknown/unprovable. */
+function skToKey(sk?: string | null): string | null {
+  if (!sk || sk === 'unknown' || sk === '?') return null;
+  const k = sk.startsWith('likely_') ? sk.slice('likely_'.length) : sk;
+  return k === 'jason' ? 'calacanis' : k;
+}
+
+/** Map a report turn header (e.g. "SACKS", "David Friedberg", "JASON") to a host key. */
+function turnNameToHostKey(name: string): string | null {
+  const n = name.toLowerCase();
+  if (n.includes('chamath')) return 'chamath';
+  if (n.includes('sacks')) return 'sacks';
+  if (n.includes('friedberg') || n.includes('freeberg')) return 'friedberg';
+  if (n.includes('jason') || n.includes('calacanis')) return 'calacanis';
+  return null; // narration / guest header / "Where they land" etc. — not a host turn
+}
+
+function displayName(key: string): string {
+  return SPEAKER_DISPLAY[key] || key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+export interface AttributionViolation {
+  turnSpeaker: string;   // host key the turn is voiced as
+  citationN: number;
+  actualSpeaker: string; // sk key of the cited segment
+  kind: 'guest-as-host' | 'cross-host';
+}
+
+/**
+ * Deterministically find citation markers attributed to the wrong speaker:
+ * a [N] sitting inside host H's turn whose actual segment speaker (sk) is a
+ * different host (cross-host) or a named guest (guest-as-host). Unknown-speaker
+ * segments are NOT flagged (can't prove a violation). No LLM, no network.
+ */
+export function verifySpeakerAttribution(
+  report: string,
+  citations: Citation[]
+): AttributionViolation[] {
+  const skByN = new Map<number, string>();
+  for (const c of citations) {
+    const k = skToKey(c.speakerKey as string | null | undefined);
+    if (k) skByN.set(c.n, k);
+  }
+  if (skByN.size === 0) return [];
+
+  const violations: AttributionViolation[] = [];
+  const turnRe = /\*\*([A-Za-z][A-Za-z .'-]*?):\*\*/g;
+  const headers = [...report.matchAll(turnRe)];
+  for (let i = 0; i < headers.length; i++) {
+    const hostKey = turnNameToHostKey(headers[i][1]);
+    if (!hostKey) continue; // only audit turns voiced as one of the four hosts
+    const bodyStart = (headers[i].index ?? 0) + headers[i][0].length;
+    const bodyEnd = i + 1 < headers.length ? (headers[i + 1].index ?? report.length) : report.length;
+    const body = report.slice(bodyStart, bodyEnd);
+    const markers = new Set(
+      Array.from(body.matchAll(/\[(\d+)\]/g)).map((m) => parseInt(m[1], 10))
+    );
+    for (const n of markers) {
+      const actual = skByN.get(n);
+      if (!actual || actual === hostKey) continue; // unknown or correct
+      violations.push({
+        turnSpeaker: hostKey,
+        citationN: n,
+        actualSpeaker: actual,
+        kind: HOST_KEYS.has(actual) ? 'cross-host' : 'guest-as-host',
+      });
+    }
+  }
+  return violations;
+}
+
+/**
+ * Repair detected speaker misattributions with a tightly-scoped LLM rewrite.
+ * Given the ground-truth speaker for each violating [N], the model must make the
+ * attribution match: a guest's words get the guest's name ("as Elon argued [N]")
+ * and are NEVER presented as a host's own view; a different host's words move to
+ * that host or are explicitly attributed. Everything else is preserved verbatim.
+ */
+export async function repairSpeakerAttribution(
+  draftReport: string,
+  violations: AttributionViolation[],
+  anthropicKey?: string
+): Promise<string> {
+  if (!anthropicKey || !draftReport || violations.length === 0) return draftReport;
+
+  const t0 = Date.now();
+  // One ground-truth line per violating citation (dedup by n).
+  const byN = new Map<number, AttributionViolation>();
+  for (const v of violations) if (!byN.has(v.citationN)) byN.set(v.citationN, v);
+  const truth = [...byN.values()]
+    .map((v) => {
+      const who = displayName(v.actualSpeaker);
+      const guest = v.kind === 'guest-as-host';
+      return `- [${v.citationN}] was actually said by ${who}${guest ? ' (a GUEST — NOT one of the four besties)' : ' (a different bestie, not the one currently voicing it)'}.`;
+    })
+    .join('\n');
+
+  const systemPrompt = `You fix SPEAKER MISATTRIBUTION in a podcast-host roundtable. Each listed citation [N] was spoken by a specific person — but the draft currently puts that content in the wrong bestie's mouth. Fix ONLY the attribution; do not change any other content.
+
+The four besties (hosts) are: Chamath, David Sacks, David Friedberg, Jason Calacanis. Anyone else (Elon Musk, Brad Gerstner, Bill Gurley, Mark Cuban, Peter Thiel, etc.) is a GUEST, not a bestie.
+
+Ground truth for the misattributed citations:
+${truth}
+
+Rules:
+- A GUEST's words must NEVER be presented as a bestie's own view. Rewrite so the bestie REFERENCES the guest by name: e.g. "As Elon argued, ... [N]" or "Friedberg pushes back on Gurley's point that ... [N]". Keep the [N] marker on that content.
+- If [N] belongs to a DIFFERENT bestie, either move that line into that bestie's turn or have the current speaker explicitly attribute it ("to Sacks's point that ... [N]").
+- Do NOT invent new claims, numbers, or details. Do NOT remove grounded content. Keep every [N] marker on the content it supports.
+- Keep turns punchy (1-3 sentences). Output ONLY the rewritten text, no preamble.`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REWRITE_TIMEOUT_MS);
+  try {
+    const client = new Anthropic({ apiKey: anthropicKey });
+    const res = await client.messages.create(
+      {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4000,
+        temperature: 0.2,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: draftReport.slice(0, 12000) }],
+      },
+      { signal: controller.signal }
+    );
+    const rewritten = res.content[0]?.type === 'text' ? res.content[0].text : draftReport;
+    const safe = safeRewrite(draftReport, rewritten);
+    console.log(`[attribution] repaired ${byN.size} misattributed citations (${violations.length} hits) in ${Date.now() - t0}ms${safe === draftReport && rewritten !== draftReport ? ' (DISCARDED degenerate rewrite)' : ''}`);
+    return safe;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`[attribution] repair failed after ${Date.now() - t0}ms: ${msg}`);
     return draftReport;
   } finally {
     clearTimeout(timer);

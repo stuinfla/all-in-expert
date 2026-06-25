@@ -22,6 +22,13 @@ import { config } from 'dotenv';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 config({ path: join(ROOT, '.env') });
+// QA_BYPASS_TOKEN (and the server's ANTHROPIC/OPENAI keys) live in web/.env.local,
+// NOT root .env. Without this, the harness sends no bypass token → the server's
+// response cache is NOT skipped → repeated queries grade STALE answers (the silent
+// measurement failure found 2026-06-25). Loading it here makes the token the harness
+// sends and the token the server validates come from the SAME file by construction.
+// dotenv does not override already-set vars, so root .env still wins where they overlap.
+config({ path: join(ROOT, 'web', '.env.local') });
 
 const API_URL = process.env.ALL_IN_API_URL || 'https://asktheallinexperts.vercel.app/api/ask';
 const OUT_DIR = join(ROOT, 'data', 'qa');
@@ -88,7 +95,7 @@ async function gradeResponse(q, response) {
   const allCitations = response.citations || [];
   const citationBlock = allCitations
     .slice(0, 15)
-    .map((c, i) => `[${i + 1}] speakers=${(c.speakers || []).join('/') || '?'} topics=${(c.topics || []).join('/') || '?'}\n    "${c.quote?.slice(0, 300) || ''}"`)
+    .map((c, i) => `[${i + 1}] spoken_by=${c.speakerKey || 'unknown'} (mentions: ${(c.speakers || []).join('/') || 'none'}) topics=${(c.topics || []).join('/') || '?'}\n    "${c.quote?.slice(0, 300) || ''}"`)
     .join('\n');
 
   const prompt = `You are grading an AI that synthesizes All-In Podcast hosts' views using retrieved transcript segments. Be rigorous but FAIR — you must verify claims against the actual citations before calling something fabricated.
@@ -131,7 +138,7 @@ Step 2: GRADE on five dimensions (1-100 each):
 
 2. **Content Grounding** — Do substantive claims have matching citations in the 15 above? Paraphrase in voice is fine; only mark down if specific numbers/quotes appear that CANNOT be traced to ANY of the 15 citations or to the real-world context above.
 
-3. **Citation Accuracy** — Are [N] markers matched to claims that the actual cited segment supports?
+3. **Citation Accuracy** — Are [N] markers matched to claims that the actual cited segment supports? ATTRIBUTION: each citation shows spoken_by=<who ACTUALLY said it> — that is the ground truth for who spoke. "mentions" are merely people referenced in the segment, NOT the speaker. A guest's words (spoken_by=elon/gerstner/gurley/cuban/thiel) presented as a bestie's OWN view is a misattribution; a bestie may reference a guest by name ("as Elon noted [N]"). spoken_by=unknown means the speaker is genuinely unknown — confidently asserting a specific bestie said it is a mild fabrication, but referencing the content neutrally is fine.
 
 4. **Recency & Authority** — Does the response feel "current" (e.g. Sacks speaks as Czar, not as outsider)? Uses present tense?
 
@@ -149,29 +156,79 @@ Respond in EXACT JSON format:
   "overall": <weighted average — voice and grounding weighted 2x>,
   "verified_claims": <count of claims you verified against citations>,
   "unverified_claims": <count of specific numeric/factual claims you couldn't trace to citations or context>,
-  "strengths": ["..."],
-  "weaknesses": ["..."],
-  "key_issue": "<most important thing to fix, or 'none' if great>"
-}`;
+  "strengths": ["<up to 3 short bullets>"],
+  "weaknesses": ["<up to 3 short bullets>"],
+  "key_issue": "<one sentence: most important thing to fix, or 'none' if great>"
+}
 
-  // Grade with up to 2 attempts. A transient unparseable grader response must
-  // mark the question UNGRADED (overall:null → excluded from the average), never
-  // a spurious 0 that the gate would read as a real failure.
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const r = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1536,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = r.content[0].type === 'text' ? r.content[0].text : '';
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch { /* malformed — fall through to retry */ }
+Output ONLY the JSON object. No preamble, no markdown fences, no trailing commentary.`;
+
+  // Extract the first complete top-level {...} object via a string-aware,
+  // balanced-brace scan. Robust to truncation, prose, and stray braces in
+  // quoted strings — far safer than a greedy /\{[\s\S]*\}/ regex.
+  function extractJson(text) {
+    try { return JSON.parse(text); } catch { /* fall through to scan */ }
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') { if (depth === 0) start = i; depth++; }
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          try { return JSON.parse(text.slice(start, i + 1)); } catch { return null; }
+        }
+      }
     }
-    if (attempt === 2) {
-      return { overall: null, ungraded: true, error: 'grader unparseable after retry', raw: text.slice(0, 200) };
+    return null;
+  }
+
+  // Grade with up to 3 attempts. The 6 NULLs on 2026-06-25 were caused by
+  // max_tokens:1536 truncating the grader's own JSON mid-object — fixed with
+  // headroom (4000). temperature:0 makes grades near-deterministic so run-to-run
+  // deltas reflect code changes, not grader mood. extractJson() tolerates any
+  // preamble/fences the "ONLY JSON" instruction doesn't suppress. A transient
+  // unparseable response marks the question UNGRADED (overall:null → excluded
+  // from the average), never a spurious 0. (NB: this model rejects assistant
+  // prefill, so we force JSON via instruction + robust extraction instead.)
+  let lastRaw = '';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let text = '';
+    try {
+      const r = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        temperature: 0,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      text = r.content[0]?.type === 'text' ? r.content[0].text : '';
+    } catch (err) {
+      // Transient API error (429 rate-limit / 5xx) — likely under high parallelism.
+      // Back off (linear) and retry rather than crashing this question's promise.
+      await new Promise((res) => setTimeout(res, 2000 * attempt));
+      continue;
+    }
+    lastRaw = text;
+    const parsed = extractJson(text);
+    if (parsed) {
+      if (typeof parsed.overall === 'number') return parsed;
+      // Parsed but missing/!numeric overall — recompute from dims (voice & grounding 2x).
+      const dims = ['voice', 'grounding', 'citations', 'recency', 'usefulness'];
+      if (dims.every((d) => typeof parsed[d] === 'number')) {
+        parsed.overall = Math.round(
+          (parsed.voice * 2 + parsed.grounding * 2 + parsed.citations + parsed.recency + parsed.usefulness) / 7
+        );
+        return parsed;
+      }
     }
   }
+  return { overall: null, ungraded: true, error: 'grader unparseable after 3 attempts', raw: lastRaw.slice(0, 300) };
 }
 
 async function main() {
@@ -182,26 +239,49 @@ async function main() {
   console.log(`\n═══ All-In Expert QA Run (${questions.length} questions${pilot ? ', PILOT' : ''}) ═══`);
   console.log(`API: ${API_URL}\n`);
 
-  const results = [];
+  // Run questions in PARALLEL with a bounded pool. Each question is independent
+  // (synthesis + grade), so sequential execution wasted ~18min on 20×~35s calls.
+  // At CONCURRENCY=10 the whole suite finishes in ~2-3 waves (~couple minutes).
+  // Tune via QA_CONCURRENCY; the grader retries with backoff so transient 429s
+  // under load don't fail a question.
+  const CONCURRENCY = Number(process.env.QA_CONCURRENCY) || 10;
+  console.log(`Running ${questions.length} questions, up to ${CONCURRENCY} in parallel...\n`);
 
-  for (const q of questions) {
-    process.stdout.write(`[${q.id}] ${q.category.padEnd(12)} ${q.query.slice(0, 60).padEnd(62)}`);
-
-    const resp = await runQuery(q);
-    if (!resp.ok) {
-      console.log(`  ✗ ${resp.error}`);
-      results.push({ ...q, error: resp.error, overall: 0 });
-      continue;
-    }
-
-    const grade = await gradeResponse(q, resp.data);
-    results.push({ ...q, grade, response: resp.data });
-    const mark = grade.overall >= 98 ? '★' : grade.overall >= 85 ? '✓' : '✗';
-    console.log(`  ${mark} ${grade.overall || '?'}/100`);
-    if (grade.key_issue && grade.key_issue !== 'none') {
-      console.log(`     issue: ${grade.key_issue.slice(0, 100)}`);
+  // Process one question end-to-end; NEVER throws (a rejection would abort the pool).
+  async function runOne(q) {
+    try {
+      const resp = await runQuery(q);
+      if (!resp.ok) {
+        console.log(`[${q.id}] ${q.category.padEnd(12)} ✗ ${resp.error}`);
+        return { ...q, error: resp.error, grade: { overall: null, ungraded: true, error: resp.error } };
+      }
+      const grade = await gradeResponse(q, resp.data);
+      const mark = grade.overall == null ? '∅' : grade.overall >= 98 ? '★' : grade.overall >= 85 ? '✓' : '✗';
+      console.log(`[${q.id}] ${q.category.padEnd(12)} ${mark} ${grade.overall ?? 'NULL'}/100`);
+      return { ...q, grade, response: resp.data };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`[${q.id}] ${q.category.padEnd(12)} ✗ EXCEPTION ${msg.slice(0, 80)}`);
+      return { ...q, error: msg, grade: { overall: null, ungraded: true, error: msg } };
     }
   }
+
+  // Bounded-concurrency pool: keeps up to `limit` promises in flight; preserves
+  // input order in the returned array (the saved run file stays q01..q20 ordered).
+  async function mapPool(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    async function worker() {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i]);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+  }
+
+  const results = await mapPool(questions, CONCURRENCY, runOne);
 
   // Scorecard
   const validScores = results.filter(r => r.grade?.overall).map(r => r.grade.overall);
