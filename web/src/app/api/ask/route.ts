@@ -7,6 +7,7 @@ import { join } from 'path';
 import { cacheLookupMem, cacheLookupPiBrain, cacheStore, CachedResponse } from '@/lib/pi-brain';
 import { rerank } from '@/lib/rerank';
 import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, appendVerifierStats, verifySpeakerAttribution, repairSpeakerAttribution } from '@/lib/validate-citations';
+import { synthesizeText } from '@/lib/synthesize';
 import { checkRateLimit, recordCall, isQaBypass } from '@/lib/rate-limit';
 import { appendPerfStats } from '@/lib/perf-stats';
 
@@ -1547,7 +1548,13 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
     // Haiku misattributed speakers + fabricated specifics — the dominant QA failure
     // mode (2026-06-24). Sonnet holds multi-speaker grounding + citation discipline
     // far better. Bump to 'claude-opus-4-8' for max quality if cost/latency allow.
-    const model = process.env.SYNTH_MODEL || 'claude-sonnet-4-6';
+    // Model selection. A valid QA request may override per-request via body.synth_model
+    // (powers the multi-provider bake-off without restarting the server); public traffic
+    // cannot. Otherwise SYNTH_MODEL env, else the default.
+    const model =
+      (qaBypassActive && typeof body?.synth_model === 'string' && body.synth_model) ||
+      process.env.SYNTH_MODEL ||
+      'claude-opus-4-8'; // bake-off winner (2026-06-25): best quality (67.5) AND fastest (34s/q).
     // Opus 4.8 deprecates the `temperature` param (400s if sent); omit it for Opus.
     // The Anthropic SDK drops undefined keys, so this cleanly removes the param.
     const synthTemperature = model.includes('opus') ? undefined : 0.3;
@@ -1789,16 +1796,17 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
       });
     }
 
-    // ─── Non-streaming JSON fallback (legacy) ────────────────────────
-    const response = await client.messages.create({
+    // ─── Non-streaming JSON path (also the model bake-off path) ──────
+    // Routes by SYNTH_MODEL prefix to Anthropic / OpenAI / Google so the QA
+    // harness can sweep providers through the real pipeline. Default stays
+    // claude-sonnet-4-6. (Streaming path above remains Anthropic-only.)
+    const rawText = await synthesizeText({
       model,
-      max_tokens: 4000,
-      temperature: synthTemperature,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      userPrompt,
+      maxTokens: 4000,
+      anthropicKey: apiKey,
     });
-
-    const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
 
     // ─── Speaker-attribution repair (deterministic detect → scoped fix) ──
     // The #1 score-limiter: guest/wrong-host words voiced as a bestie's own.

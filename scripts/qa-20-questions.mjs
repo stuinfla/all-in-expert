@@ -72,6 +72,8 @@ async function runQuery(q) {
   if (q.speaker) body.speaker = q.speaker;
   if (q.mode) body.mode = q.mode;
   if (QA_BYPASS_TOKEN) body.qa_token = QA_BYPASS_TOKEN;
+  // Model bake-off: override the synthesis model per-request (QA-token gated server-side).
+  if (process.env.BAKEOFF_MODEL) body.synth_model = process.env.BAKEOFF_MODEL;
 
   const headers = { 'Content-Type': 'application/json' };
   if (QA_BYPASS_TOKEN) headers['x-qa-token'] = QA_BYPASS_TOKEN;
