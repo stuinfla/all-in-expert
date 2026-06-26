@@ -22,7 +22,11 @@ const ROOT = join(__dirname, '..');
 config({ path: join(ROOT, '.env') });
 config({ path: join(ROOT, 'web', '.env.local') });
 
-const DIMS = 384;
+// Upgraded 2026-06-26: text-embedding-3-small@384 -> text-embedding-3-large@1024.
+// Small@384 was OpenAI's weakest tier and the #1 retrieval-relevance bottleneck.
+// MUST match EMBEDDING_MODEL/EMBEDDING_DIMS in web/src/app/api/ask/route.ts.
+const EMBEDDING_MODEL = 'text-embedding-3-large';
+const DIMS = 1024;
 const BATCH_SIZE = 100;
 const RETRY_LIMIT = 3;
 
@@ -43,7 +47,7 @@ async function embedBatch(texts, apiKey) {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'text-embedding-3-small',
+          model: EMBEDDING_MODEL,
           input: texts,
           dimensions: DIMS,
           encoding_format: 'float',
@@ -121,7 +125,7 @@ async function main() {
 
   const mb = (embeddings.byteLength / 1024 / 1024).toFixed(1);
   console.log(`\nSaved embeddings.bin (${mb}MB) + embeddings-order.json`);
-  console.log('Dimensions: 384, Model: text-embedding-3-small');
+  console.log(`Dimensions: ${DIMS}, Model: ${EMBEDDING_MODEL}`);
 }
 
 main().catch((e) => {
