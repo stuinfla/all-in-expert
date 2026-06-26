@@ -45,10 +45,10 @@ let rvfCache: any = null;
 let episodeDatesCache: Record<string, string> | null = null;
 let embeddingsBinCache: Float32Array | null = null;
 let embeddingsOrderCache: string[] | null = null;
-// Upgraded 2026-06-26 small@384 -> large@1024 (retrieval-relevance lever).
-// MUST match scripts/build-embeddings-openai.mjs; embeddings.bin must be rebuilt.
-const EMBEDDING_DIMS = 1024;
-const EMBEDDING_MODEL = 'text-embedding-3-large';
+// text-embedding-3-small @ 384d. large@1024 tested 2026-06-26 (quality-neutral) and reverted.
+// MUST match scripts/build-embeddings-openai.mjs + the committed embeddings.bin (384d).
+const EMBEDDING_DIMS = 384;
+const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 function getEmbeddingsBin(): { bin: Float32Array; order: string[] } | null {
   if (embeddingsBinCache && embeddingsOrderCache) {

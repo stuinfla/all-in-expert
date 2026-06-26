@@ -22,11 +22,11 @@ const ROOT = join(__dirname, '..');
 config({ path: join(ROOT, '.env') });
 config({ path: join(ROOT, 'web', '.env.local') });
 
-// Upgraded 2026-06-26: text-embedding-3-small@384 -> text-embedding-3-large@1024.
-// Small@384 was OpenAI's weakest tier and the #1 retrieval-relevance bottleneck.
-// MUST match EMBEDDING_MODEL/EMBEDDING_DIMS in web/src/app/api/ask/route.ts.
-const EMBEDDING_MODEL = 'text-embedding-3-large';
-const DIMS = 1024;
+// text-embedding-3-small @ 384d. NOTE (2026-06-26): tested upgrade to large@1024 —
+// proved quality-NEUTRAL (QA citations identical 54.8), so kept small@384 for a lean
+// deploy. MUST match EMBEDDING_MODEL/EMBEDDING_DIMS in web/src/app/api/ask/route.ts.
+const EMBEDDING_MODEL = 'text-embedding-3-small';
+const DIMS = 384;
 const BATCH_SIZE = 100;
 const RETRY_LIMIT = 3;
 
