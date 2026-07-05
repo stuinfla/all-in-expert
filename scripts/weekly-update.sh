@@ -30,6 +30,29 @@ export PATH="$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 NODE="/opt/homebrew/bin/node"
 NPM="/opt/homebrew/bin/npm"
 
+# --- pipeline secrets: load from .env + web/.env.local and EXPORT so EVERY child
+#     node step inherits them under the bare launchd env (PATH+HOME only). General
+#     cure for the 2026-06/07 class — a secret present in the interactive shell but
+#     absent from the daemon: build-embeddings needs OPEN_AI_KEY, cache-warm needs
+#     QA_BYPASS_TOKEN, qa-ci needs ANTHROPIC_API_KEY (qa-ci.mjs explicitly expects
+#     the parent shell to export it). Parse — never `source` — to avoid executing
+#     file contents. Values are never logged. Later file wins (web/.env.local last).
+export_secret() {  # $1=VAR  $2=file
+    [ -f "$2" ] || return 0
+    local line val
+    line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?$1=" "$2" 2>/dev/null | tail -1)
+    [ -n "$line" ] || return 0
+    val=${line#*=}                        # value after first '='
+    val=${val%$'\r'}                      # strip trailing CR (CRLF files)
+    val=${val#[\"\']}; val=${val%[\"\']}  # strip one layer of surrounding quotes
+    [ -n "$val" ] && export "$1=$val"
+}
+for _envf in "$ROOT/.env" "$ROOT/web/.env.local"; do
+    for _k in OPEN_AI_KEY OPENAI_API_KEY ANTHROPIC_API_KEY QA_BYPASS_TOKEN; do
+        export_secret "$_k" "$_envf"
+    done
+done
+
 # ntfy phone push. The topic IS the subscribe key on ntfy.sh — subscribe to it
 # once in the ntfy app to receive these. Hardcoded fallback (overridable via
 # AIE_NTFY_TOPIC env) so phone alerts survive .env rewrites.
@@ -58,6 +81,11 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another weekly-update run holds the lock — exiting."
     exit 0
 fi
+
+# --- keep the Mac awake for the whole run. On 2026-07-03 the KB rebuild died at
+#     9% (exit 0, killed mid-embed) because the machine idle-slept at 4am. caffeinate
+#     -w "$$" asserts "no idle/system sleep" until THIS pid exits, then stops itself.
+caffeinate -i -s -w "$$" 2>/dev/null &
 
 # --- loud failure on ANY exit path. The 3-week silent outage happened because
 #     failures only landed in an unwatched logfile. This trap ends that: every
@@ -117,12 +145,42 @@ fi
 "$NODE" --input-type=module -e "await import('fast-xml-parser');await import('@xenova/transformers');await import('@ruvector/rvf');" >> "$LOG_FILE" 2>&1 || { log "ERROR: required modules unresolved after install"; exit 1; }
 log "Preflight OK."
 
+# 0b. Preflight — required secrets. THE FIX for the 2026-06/07 silent-failure loop:
+#     the OpenAI key lived only in the interactive shell, absent from .env and the
+#     LaunchAgent env, so step 6b (built 20 min in) died on `!apiKey` every night.
+#     Check it HERE — present AND live — so a missing/expired key fails in seconds
+#     through the same finish() alert path, never again after a wasted rebuild.
+#     Loads the exact same sources the embed script uses (.env + web/.env.local).
+CURRENT_STEP="preflight (OpenAI key)"
+log "Preflight: verifying OpenAI key (resolve + live)..."
+"$NODE" --input-type=module -e '
+import { config } from "dotenv";
+config({ path: ".env" }); config({ path: "web/.env.local" });
+const key = process.env.OPEN_AI_KEY || process.env.OPENAI_API_KEY;
+if (!key) { console.error("OpenAI key MISSING from process env + .env + web/.env.local"); process.exit(1); }
+const r = await fetch("https://api.openai.com/v1/embeddings", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+  body: JSON.stringify({ model: "text-embedding-3-small", input: "preflight", dimensions: 384 }),
+});
+if (!r.ok) { console.error("OpenAI key REJECTED: HTTP " + r.status + " " + (await r.text()).slice(0, 160)); process.exit(1); }
+console.log("OpenAI key live (HTTP 200).");
+' >> "$LOG_FILE" 2>&1 || { log "ERROR: OpenAI key preflight failed — key missing or not live (fix .env OPEN_AI_KEY)"; exit 1; }
+log "Preflight OpenAI key OK (live)."
+
 # 1. Refresh RSS feed (get latest episodes)
 CURRENT_STEP="RSS download"
 log "Refreshing RSS feed..."
-curl -sL "https://rss.libsyn.com/shows/254861/destinations/1928300.xml" \
-    -o "data/episodes/rss_feed.xml" || {
-    log "ERROR: RSS download failed"
+# Retry transient blips (the 06-27/06-28 curl failures that nuked whole runs) and
+# download to a temp file first so a partial fetch can never clobber a good feed.
+curl -sL --retry 4 --retry-delay 5 --retry-all-errors --max-time 90 \
+    "https://rss.libsyn.com/shows/254861/destinations/1928300.xml" \
+    -o "data/episodes/rss_feed.xml.tmp" \
+    && [ -s "data/episodes/rss_feed.xml.tmp" ] \
+    && grep -q "<rss" "data/episodes/rss_feed.xml.tmp" \
+    && mv "data/episodes/rss_feed.xml.tmp" "data/episodes/rss_feed.xml" || {
+    rm -f "data/episodes/rss_feed.xml.tmp"
+    log "ERROR: RSS download failed after retries (persistent outage — existing feed kept)"
     exit 1
 }
 log "RSS feed refreshed ($(wc -c < data/episodes/rss_feed.xml) bytes)"
@@ -268,10 +326,15 @@ fi
 CURRENT_STEP="vercel deploy"
 log "Deploying to Vercel..."
 cd "$ROOT/web"
-DEPLOY_OUT=$(vercel --prod --yes --scope stuart-kerrs-projects 2>&1)
+DEPLOY_OUT=$(vercel --prod --yes --scope stuart-kerrs-projects 2>&1); VC_RC=$?
 echo "$DEPLOY_OUT" >> "$LOG_FILE"
-if [ $? -ne 0 ] && ! echo "$DEPLOY_OUT" | grep -q "Production:"; then
-    log "ERROR: Vercel deploy failed"
+# Fail loud if vercel returned non-zero AND no production URL is present. Capture
+# VC_RC on the SAME line as the vercel call — the previous check read $? from the
+# echo above (always 0), so a FAILED deploy could never trip this branch and the
+# run would 'succeed' with stale prod. Match the real URL, not the never-present
+# literal "Production:" (vercel prints "Production   https://web-…", no colon).
+if [ "$VC_RC" -ne 0 ] && ! echo "$DEPLOY_OUT" | grep -qE 'https://web-[a-z0-9]+-stuart-kerrs-projects\.vercel\.app'; then
+    log "ERROR: Vercel deploy failed (rc=$VC_RC)"
     exit 1
 fi
 DEPLOY_URL=$(echo "$DEPLOY_OUT" | grep -oE 'https://web-[a-z0-9]+-stuart-kerrs-projects\.vercel\.app' | head -1)
