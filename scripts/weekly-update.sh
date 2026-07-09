@@ -229,11 +229,19 @@ print(f'{len(episodes)} episodes')
 # 3. Refresh YouTube video ID list
 CURRENT_STEP="YouTube catalog"
 log "Refreshing YouTube video catalog..."
-yt-dlp --flat-playlist --print "%(id)s\t%(title)s" \
-    "https://www.youtube.com/@allin/videos" 2>/dev/null \
-    > data/episodes/all_video_ids_raw.tsv || {
-    log "WARN: yt-dlp flat-playlist failed; keeping existing TSV"
-}
+# Write to .tmp then mv. The old form redirected straight onto the TSV, and the
+# shell TRUNCATES a redirect target before the command runs — so when yt-dlp
+# failed, the "existing TSV" the WARN claimed to keep had already been destroyed.
+# Found 2026-07-09 with the file sitting at 0 bytes.
+if yt-dlp --flat-playlist --print "%(id)s\t%(title)s" \
+        "https://www.youtube.com/@allin/videos" 2>/dev/null \
+        > data/episodes/all_video_ids_raw.tsv.tmp \
+        && [ -s data/episodes/all_video_ids_raw.tsv.tmp ]; then
+    mv data/episodes/all_video_ids_raw.tsv.tmp data/episodes/all_video_ids_raw.tsv
+else
+    rm -f data/episodes/all_video_ids_raw.tsv.tmp
+    log "WARN: yt-dlp flat-playlist failed or returned nothing; existing TSV preserved"
+fi
 if [ -s data/episodes/all_video_ids_raw.tsv ]; then
     # Fix literal \t issue
     python3 -c "
