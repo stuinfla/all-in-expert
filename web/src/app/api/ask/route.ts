@@ -10,6 +10,7 @@ import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, append
 import { synthesizeText } from '@/lib/synthesize';
 import { checkRateLimit, recordCall, isQaBypass } from '@/lib/rate-limit';
 import { appendPerfStats } from '@/lib/perf-stats';
+import { recordSemanticSuccess, recordSemanticFailure } from '@/lib/semantic-health';
 
 // Bumped from 60s → 120s. The pipeline (hybrid retrieval → MMR → cross-encoder
 // rerank → synthesis → citation validation → claim verification → optional
@@ -290,8 +291,15 @@ async function embedQuery(query: string): Promise<Float32Array> {
     }),
   });
   if (!res.ok) {
+    // Never put the raw body in the Error message: OpenAI's 401 echoes the
+    // offending key as `sk-proj-****…3456` — the prefix plus its LAST FOUR
+    // characters — which then lands verbatim in logs. Keep only the status and
+    // OpenAI's own error code (`insufficient_quota`, `invalid_api_key`), which
+    // is the actionable part anyway.
     const body = await res.text();
-    throw new Error(`OpenAI embeddings ${res.status}: ${body.slice(0, 200)}`);
+    const code =
+      /"code"\s*:\s*"([a-z_]+)"/.exec(body)?.[1] ?? /"type"\s*:\s*"([a-z_]+)"/.exec(body)?.[1] ?? '';
+    throw new Error(`OpenAI embeddings ${res.status}${code ? `: ${code}` : ''}`);
   }
   const data = await res.json();
   const raw: number[] = data?.data?.[0]?.embedding;
@@ -406,6 +414,7 @@ async function semanticSearchBin(query: string, limit: number, speakerFilter?: s
   const embeddings = getEmbeddingsBin();
   if (!embeddings) {
     console.log('[semanticSearchBin] embeddings binary not available');
+    recordSemanticFailure('embeddings_bin_missing');
     return null;
   }
   console.log(`[semanticSearchBin] loaded ${embeddings.order.length} vectors, embedding query...`);
@@ -414,8 +423,12 @@ async function semanticSearchBin(query: string, limit: number, speakerFilter?: s
   try {
     queryVec = await embedQuery(query);
     console.log(`[semanticSearchBin] query embedded, dims=${queryVec.length}`);
+    recordSemanticSuccess();
   } catch (err) {
     console.error('[semanticSearchBin] Query embedding failed:', err);
+    // null here means "the dense path FAILED", never "it found nothing" — the
+    // caller relies on that distinction to report an honest searchMode.
+    recordSemanticFailure(err instanceof Error ? err.message : String(err));
     return null;
   }
 
@@ -544,13 +557,19 @@ async function semanticSearch(query: string, limit = 30, speakerFilter?: string 
   // Tier 2: flat binary scan — same vector space as the query (OpenAI 384d),
   // ~30ms for 15k vectors. This is the primary semantic path until RVF is rebuilt.
   const binResults = await semanticSearchBin(query, limit, speakerFilter);
-  if (binResults && binResults.length > 0) {
+
+  // null ⇒ the dense path FAILED (no key, no quota, missing binary). Distinct from
+  // an empty array, which means it ran fine and simply matched nothing. Collapsing
+  // these two was the 2026-07-09 bug: a dead OpenAI account looked identical to a
+  // query with no semantic matches, and hybridSearch reported 'hybrid' either way.
+  if (binResults === null) {
+    return { results: [] as Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>, mode: 'dense-down' as const };
+  }
+  if (binResults.length > 0) {
     return { results: binResults, mode: 'semantic' as const };
   }
 
-  // All dense paths exhausted — return empty so hybridSearch can merge with tfidf.
-  // Reported as 'empty' (not 'semantic') so downstream can distinguish a successful
-  // semantic search that happened to return zero from one where every dense path failed.
+  // Dense path ran successfully but matched nothing — merge with tfidf as usual.
   return { results: [] as Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>, mode: 'empty' as const };
 }
 
@@ -751,7 +770,7 @@ async function hybridSearch(
   limit = 30,
   speakerFilter?: string | null,
   topicalMode = false
-): Promise<{ results: Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>; mode: 'hybrid' }> {
+): Promise<{ results: Array<{ id: string; entry: ContentEntry; distance: number; rawDistance: number }>; mode: 'hybrid' | 'tfidf-degraded' }> {
   // Over-fetch from each ranker so RRF has good coverage before trimming
   const fetchLimit = Math.min(limit * 3, 90);
 
@@ -763,13 +782,19 @@ async function hybridSearch(
   const denseList = semanticResult.results;
   const sparseList = tfidfResults;
 
+  // The dense half is DEAD (not merely empty). We still answer from tfidf so the
+  // site stays up, but the reported mode must say so — never claim 'hybrid' when
+  // only one of the two rankers actually ran.
+  const denseDown = semanticResult.mode === 'dense-down';
+  const mode = denseDown ? ('tfidf-degraded' as const) : ('hybrid' as const);
+
   console.log(
-    `[hybridSearch] dense=${denseList.length} sparse=${sparseList.length} topical=${topicalMode}`
+    `[hybridSearch] dense=${denseList.length} sparse=${sparseList.length} topical=${topicalMode} mode=${mode}`
   );
 
   // If both rankers returned nothing, return empty
   if (denseList.length === 0 && sparseList.length === 0) {
-    return { results: [], mode: 'hybrid' };
+    return { results: [], mode };
   }
 
   // RRF fusion
@@ -826,7 +851,7 @@ async function hybridSearch(
   });
 
   merged.sort((a, b) => a.distance - b.distance);
-  return { results: merged.slice(0, limit), mode: 'hybrid' };
+  return { results: merged.slice(0, limit), mode };
 }
 
 // ─── MMR diversity reranking ──────────────────────────────────────────────────
@@ -1069,7 +1094,12 @@ export async function POST(req: NextRequest) {
         // with unfiltered topic-only chunks (that would defeat the point).
         if (strictModeActive) {
           const filtered = await hybridSearch(query, 40, speaker, true);
-          return { results: filtered.results, mode: 'hybrid-strict' as const };
+          // Degradation dominates the label: if the dense half was dead, say so
+          // rather than reporting the strict-speaker path as if it were healthy.
+          return {
+            results: filtered.results,
+            mode: filtered.mode === 'tfidf-degraded' ? ('tfidf-degraded' as const) : ('hybrid-strict' as const),
+          };
         }
         const [filtered, unfiltered] = await Promise.all([
           hybridSearch(query, 20, speaker, true),
@@ -1089,7 +1119,8 @@ export async function POST(req: NextRequest) {
             merged.push(r);
           }
         }
-        return { results: merged, mode: 'hybrid' as const };
+        const degraded = filtered.mode === 'tfidf-degraded' || unfiltered.mode === 'tfidf-degraded';
+        return { results: merged, mode: degraded ? ('tfidf-degraded' as const) : ('hybrid' as const) };
       }
       return hybridSearch(query, 40, null, isTopical);
     })();

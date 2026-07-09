@@ -1280,6 +1280,10 @@ export default function Home() {
                       ? "semantic dense vectors"
                       : meta.searchMode === "hybrid"
                       ? "hybrid dense+sparse search"
+                      : meta.searchMode === "hybrid-strict"
+                      ? "hybrid dense+sparse search (single bestie)"
+                      : meta.searchMode === "tfidf-degraded"
+                      ? "TF-IDF keyword search only — semantic retrieval unavailable"
                       : meta.searchMode === "tfidf"
                       ? "TF-IDF keyword search"
                       : meta.searchMode || "hybrid search";

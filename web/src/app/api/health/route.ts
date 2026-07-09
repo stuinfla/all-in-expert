@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { probeSemanticLive } from '@/lib/semantic-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -163,8 +164,14 @@ export async function GET() {
 
   const uptimeSec = Math.floor((Date.now() - PROCESS_START_MS) / 1000);
 
+  // Live dense-path probe (60s cached). Asset existence alone is not health:
+  // on 2026-07-09 embeddings.bin was present and valid while every query embed
+  // returned 429, so /api/ask silently served TF-IDF-only answers. A `degraded`
+  // status here is what the watchdog should key on.
+  const semantic = await probeSemanticLive();
+
   const status: 'ok' | 'degraded' =
-    chunkCount > 0 && embeddingsBinExists ? 'ok' : 'degraded';
+    chunkCount > 0 && embeddingsBinExists && semantic.ok ? 'ok' : 'degraded';
 
   return NextResponse.json(
     {
@@ -177,6 +184,7 @@ export async function GET() {
       embeddingsBinBytes,
       rvfExists,
       rvfBytes,
+      semantic,
       lastQaScore,
       qaBaselineDate,
       qaScoreSource,
