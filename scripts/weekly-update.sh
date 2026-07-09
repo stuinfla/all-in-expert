@@ -419,6 +419,23 @@ else
     qa_signature > "$QA_STATE_FILE"
 fi
 
+# 12b. Publish the QA summary into the deployed bundle. /api/health can ONLY read
+# web/public/data/qa-{latest,baseline}.json in production: Vercel bundles just
+# web/ (cwd=/var/task), so the repo-root data/qa/ never ships. Nothing published
+# these before 2026-07-09, so qaLatest was permanently null and health fell back
+# to a May-2026 baseline advertising 81 while the real score was 67.
+#
+# These land in the NEXT deploy, not this one — QA necessarily runs against the
+# build that is already live, so prod always reports the previous run's score.
+# That is correct and intentional; the timestamp in the payload makes it legible.
+# They also get auto-committed, since step 9 stages web/public/data/.
+for _qa in latest baseline; do
+    if [ -f "data/qa/$_qa.json" ]; then
+        cp -f "data/qa/$_qa.json" "web/public/data/qa-$_qa.json" \
+            || log "WARN: could not publish qa-$_qa.json into the bundle"
+    fi
+done
+
 RUN_OK=1
 DID_FULL_RUN=1
 log "═══ Weekly update complete ═══"

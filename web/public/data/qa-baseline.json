@@ -1,7 +1,8 @@
 {
-  "overall": 81,
+  "overall": 68,
   "perQuestionFloor": 60,
   "regressionTolerance": 3,
-  "createdAt": "2026-05-12",
-  "notes": "Baseline weighted-overall score for the 20-Q QA harness. Updated only after intentional, reviewed improvements (commit the bump alongside the change). qa-ci.mjs compares ./latest.json against this and fails when overall regresses by more than regressionTolerance points OR any individual question falls below perQuestionFloor."
+  "grader": "claude-sonnet-4-6",
+  "createdAt": "2026-06-24",
+  "notes": "Re-baselined 2026-06-24 with grader claude-sonnet-4-6. The prior 81 was graded by the now-retired claude-sonnet-4-20250514 and is NOT comparable. Measured Sonnet-4.6 synthesis: 66.1 (Haiku) -> 68.7 (Sonnet) -> 68.6 (Sonnet + grounding prompt), same grader. Floor 60 kept intentionally so genuinely-bad answers (fabrication/hallucination/truncation) still trip the gate. The ~68 ceiling is STRUCTURAL: speaker misattribution (unreliable segment speaker tags -> needs audio diarization) + persistent fabrication (needs a verifier that excises, not just hedges). Path to 85+ is the documented multi-sprint effort (diarization + verifier-excise + forced citation markers + ground-truth injection into the topical prompt), not a config change."
 }

@@ -1,0 +1,130 @@
+{
+  "timestamp": "2026-07-09T16:38:31.901Z",
+  "overall": 67,
+  "questionCount": 20,
+  "perQuestion": [
+    {
+      "id": "q01",
+      "category": "Markets",
+      "overall": 61,
+      "keyIssue": "Multiple [N] citation markers are mismatched — the claims they annotate do not appear in the cited segments, particularly [10] being used to support a 'kicked OpenAI's ass' narrative that the actual Chamath quote (about trading above $380B valuation) does not say."
+    },
+    {
+      "id": "q02",
+      "category": "Macro",
+      "overall": 68,
+      "keyIssue": "The system systematically assigns spoken_by=unknown transcript content to named besties with false confidence, and invents the 'Doug Bergum / cabinet conversations' detail with no citation support."
+    },
+    {
+      "id": "q03",
+      "category": "Politics",
+      "overall": 81,
+      "keyIssue": "The March 20th framework quote [12] is spoken by Friedberg in the transcript but is placed in Sacks's mouth in the dialogue — a clear misattribution that undermines citation accuracy."
+    },
+    {
+      "id": "q04",
+      "category": "Crypto",
+      "overall": 70,
+      "keyIssue": "Multiple citations are misattributed: unknown-speaker segments are put in Sacks's mouth, a Sacks segment is given to Chamath, and a Calacanis segment is given to Friedberg — the dialogue format actively misleads on who said what."
+    },
+    {
+      "id": "q05",
+      "category": "Forecast",
+      "overall": 67,
+      "keyIssue": "The Druckenmiller/fiscal-unsustainability thesis is repeatedly cited as [10] but [10] only discusses MicroStrategy leverage — this is a citation mismatch that inflates the apparent grounding of the macro argument."
+    },
+    {
+      "id": "q06",
+      "category": "Science",
+      "overall": 57,
+      "keyIssue": "The '5x demand' fabricated statistic directly contradicts citation [6] which says '2x', and citation [3] is misapplied — these are the most damaging grounding failures and must be corrected."
+    },
+    {
+      "id": "q07",
+      "category": "Tariffs",
+      "overall": 69,
+      "keyIssue": "Multiple citations (especially [6], [9], [12]) are spoken_by=unknown or spoken_by=elon but are presented as direct statements by Chamath and Sacks, creating systematic misattribution that undermines citation accuracy."
+    },
+    {
+      "id": "q08",
+      "category": "Tech",
+      "overall": 68,
+      "keyIssue": "Citation [9] content (Nano Banana, Sora, fantasy chatbots) is spoken_by=elon but is placed verbatim into Chamath's dialogue without attribution, constituting a direct misattribution that undermines citation accuracy."
+    },
+    {
+      "id": "q09",
+      "category": "Chamath",
+      "overall": 59,
+      "keyIssue": "Elon is fabricated as a live dialogue participant, and Chamath's 'macro view' is largely constructed from thin inference rather than direct transcript evidence — the response overstates what the citations actually support."
+    },
+    {
+      "id": "q10",
+      "category": "AI",
+      "overall": 80,
+      "keyIssue": "Systematic misattribution of spoken_by=unknown segments to specific named hosts inflates the apparent precision of who said what; the dialogue format requires verified speaker attribution that the citations don't fully support."
+    },
+    {
+      "id": "q11",
+      "category": "Politics",
+      "overall": 72,
+      "keyIssue": "Most citations are spoken_by=elon or spoken_by=unknown, but the response confidently assigns those lines to specific besties (Chamath, Sacks, Friedberg) as their own views — this is the core fabrication risk and must be fixed."
+    },
+    {
+      "id": "q12",
+      "category": "Markets",
+      "overall": 62,
+      "keyIssue": "Multiple citations are spoken_by=elon or spoken_by=unknown but are presented as direct statements by Sacks and Chamath, constituting systematic misattribution that undermines citation accuracy throughout."
+    },
+    {
+      "id": "q13",
+      "category": "Guest",
+      "overall": 69,
+      "keyIssue": "The response puts words directly in Gerstner's mouth as fabricated dialogue when the primary citation [2] is actually Jason Calacanis paraphrasing Gerstner, and Sacks's energy/gigawatts lines are entirely uncited fabrications."
+    },
+    {
+      "id": "q14",
+      "category": "Geopolitics",
+      "overall": 68,
+      "keyIssue": "Nearly every citation is spoken_by=unknown or a guest (Elon, Gurley), yet the response confidently assigns specific dialogue lines to named besties (Sacks, Chamath, Friedberg) — this is pervasive misattribution that undermines citation accuracy throughout."
+    },
+    {
+      "id": "q15",
+      "category": "Startups",
+      "overall": 70,
+      "keyIssue": "The dialogue format is fundamentally broken because Jason is made to interview himself, Chamath speaks at length with zero citation support, and the fabricated back-and-forth creates a false impression of a real conversation that the retrieved segments don't support."
+    },
+    {
+      "id": "q16",
+      "category": "Energy",
+      "overall": 69,
+      "keyIssue": "The response confidently assigns specific dialogue lines to named besties (Chamath, Friedberg, Sacks, Jason) when the underlying citations are spoken_by=unknown or spoken_by=elon, creating systematic misattribution throughout the synthetic dialogue."
+    },
+    {
+      "id": "q17",
+      "category": "Forecast",
+      "overall": 69,
+      "keyIssue": "Citation [8] is spoken by Travis Kalanick, not Sacks — placing Kalanick's specific words (bankruptcy charts, ZERP era, 3.3% GDP) directly into Sacks's dialogue is a material misattribution that undermines the entire response's credibility."
+    },
+    {
+      "id": "q18",
+      "category": "Immigration",
+      "overall": 61,
+      "keyIssue": "The response systematically misattributes content from unknown speakers and a guest (Elon) to specific besties (Chamath, Sacks) without flagging the uncertainty, which is the core citation accuracy failure."
+    },
+    {
+      "id": "q19",
+      "category": "Health",
+      "overall": 63,
+      "keyIssue": "Several key claims (cellular control theory, addiction drugs, Chamath/Sacks dialogue) are fabricated without citation support, and multiple unknown-speaker segments are misattributed directly to Friedberg as quoted speech."
+    },
+    {
+      "id": "q20",
+      "category": "Media",
+      "overall": 56,
+      "keyIssue": "The response repeatedly misattributes Elon's words (citation [2], spoken_by=elon) to Sacks as his own stated views, and assigns Sacks's words from [9] to Friedberg — these are structural citation misattributions that undermine the entire grounding of the answer."
+    }
+  ],
+  "baselineOverall": 68,
+  "delta": -1,
+  "sourceRun": "/Users/stuartkerr/Code/All In Expert/data/qa/qa-run-2026-07-09.json"
+}

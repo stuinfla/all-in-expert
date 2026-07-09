@@ -40,6 +40,13 @@ export async function GET() {
   // BOTH: `lastQaScore` returns latest if available, else baseline (so the
   // health endpoint reflects fresh QA runs); `qaLatest` and `qaBaseline`
   // expose the raw snapshots so operators can spot a divergence.
+  //
+  // NOTE: on Vercel `cwd` is /var/task, which bundles ONLY `web/` — the repo-root
+  // data/qa/ never ships. So in production the *only* candidate that ever resolves
+  // is public/data/qa-{latest,baseline}.json. weekly-update.sh publishes both there
+  // after each QA run. Before 2026-07-09 nothing did, so qaLatest was permanently
+  // null and health fell back to a May-2026 bundled baseline reporting 81 while the
+  // real score was 67 — a stale fallback masquerading as a live number.
   const qaLatestCandidates = [
     join(process.cwd(), 'data', 'qa', 'latest.json'),
     join(process.cwd(), '..', 'data', 'qa', 'latest.json'),
@@ -83,7 +90,10 @@ export async function GET() {
         if (typeof parsed.overall === 'number') {
           return {
             overall: parsed.overall,
-            createdAt: parsed.createdAt ?? null,
+            // baseline.json carries `createdAt`; the qa-ci summary in latest.json
+            // carries `timestamp`. Reading only the former reported createdAt:null
+            // for every latest snapshot, making a fresh score look undated.
+            createdAt: parsed.createdAt ?? parsed.timestamp ?? null,
             source,
             path: p,
           };
