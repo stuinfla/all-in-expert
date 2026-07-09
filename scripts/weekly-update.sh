@@ -48,15 +48,17 @@ export_secret() {  # $1=VAR  $2=file
     [ -n "$val" ] && export "$1=$val"
 }
 for _envf in "$ROOT/.env" "$ROOT/web/.env.local"; do
-    for _k in OPEN_AI_KEY OPENAI_API_KEY ANTHROPIC_API_KEY QA_BYPASS_TOKEN; do
+    for _k in OPEN_AI_KEY OPENAI_API_KEY ANTHROPIC_API_KEY QA_BYPASS_TOKEN AIE_NTFY_TOPIC; do
         export_secret "$_k" "$_envf"
     done
 done
 
-# ntfy phone push. The topic IS the subscribe key on ntfy.sh — subscribe to it
-# once in the ntfy app to receive these. Hardcoded fallback (overridable via
-# AIE_NTFY_TOPIC env) so phone alerts survive .env rewrites.
-AIE_NTFY_TOPIC="${AIE_NTFY_TOPIC:-all-in-expert-kb-4f7b38f92c}"
+# ntfy phone push. On ntfy.sh the topic name IS the credential — anyone who knows
+# it can read these alerts or publish spoofed ones. It therefore lives ONLY in
+# .env (git-ignored) and in the Vercel env, never in this file: the previous
+# hardcoded fallback sat in a PUBLIC repo. Rotated 2026-07-09.
+# If it is unset we still log + desktop-notify; we just cannot push to the phone.
+AIE_NTFY_TOPIC="${AIE_NTFY_TOPIC:-}"
 ntfy_push() {  # $1=title  $2=body  $3=priority(default high)  $4=tags(default warning)
     [ -n "$AIE_NTFY_TOPIC" ] || return 0
     curl -sf --max-time 10 -H "Title: $1" -H "Priority: ${3:-high}" -H "Tags: ${4:-warning}" \
@@ -366,7 +368,56 @@ log "Warming response cache..."
 cd "$ROOT"
 CURRENT_STEP="QA regression"
 log "Running QA regression check..."
-"$NODE" scripts/qa-ci.mjs >> "$LOG_FILE" 2>&1 || log "WARN: QA regression detected"
+# QA stays deliberately NON-BLOCKING: a quality dip must never stop a data
+# refresh (qa-ci.mjs exits 0 on infra problems, 1 only on a real regression).
+# But non-blocking must not mean invisible. Until 2026-07-09 a regression was a
+# lone WARN buried in this log — and the harness had in fact been silently
+# skipping for weeks (no ANTHROPIC_API_KEY under launchd), so nobody noticed.
+# Now: every regression writes a durable ALERTS line, and the phone rings only
+# when it got WORSE than the last run — otherwise a known, unchanged failure
+# would page on every single run until it was fixed, and get tuned out.
+QA_STATE_FILE="$LOG_DIR/all-in-expert-qa.state"   # "<overall>|<sorted below-floor ids>"
+qa_signature() {
+    "$NODE" -e '
+      const fs = require("fs");
+      const latest = "data/qa/latest.json", base = "data/qa/baseline.json";
+      if (!fs.existsSync(latest) || !fs.existsSync(base)) { process.stdout.write(""); process.exit(0); }
+      const j = JSON.parse(fs.readFileSync(latest, "utf8"));
+      const floor = JSON.parse(fs.readFileSync(base, "utf8")).perQuestionFloor ?? 60;
+      const below = (j.perQuestion || []).filter((q) => q.overall > 0 && q.overall < floor).map((q) => q.id).sort();
+      process.stdout.write(`${j.overall}|${below.join(",")}`);
+    ' 2>/dev/null
+}
+if "$NODE" scripts/qa-ci.mjs >> "$LOG_FILE" 2>&1; then
+    log "QA regression check: PASS"
+    qa_signature > "$QA_STATE_FILE"
+else
+    NEW_SIG=$(qa_signature); OLD_SIG=$(cat "$QA_STATE_FILE" 2>/dev/null || true)
+    NEW_OVERALL=${NEW_SIG%%|*}; NEW_BELOW=${NEW_SIG#*|}
+    OLD_OVERALL=${OLD_SIG%%|*}; OLD_BELOW=${OLD_SIG#*|}
+    log "WARN: QA regression detected (overall=${NEW_OVERALL:-?} below_floor=[${NEW_BELOW}])"
+    echo "[$(date '+%F %T %Z')] QA REGRESSION overall=${NEW_OVERALL:-?} below_floor=[${NEW_BELOW}]" >> "$ALERT_LOG"
+
+    WORSE=0
+    [ -z "$OLD_SIG" ] && WORSE=1          # first observation — say it once
+    for _q in ${NEW_BELOW//,/ }; do       # a question that newly fell below the floor
+        case ",$OLD_BELOW," in *",$_q,"*) ;; *) WORSE=1 ;; esac
+    done
+    # overall dropped 2+ points since last run (a 1-point move is grader jitter)
+    if [ -n "$NEW_OVERALL" ] && [ -n "$OLD_OVERALL" ] && [ "$NEW_OVERALL" -le "$((OLD_OVERALL - 2))" ]; then
+        WORSE=1
+    fi
+
+    if [ "$WORSE" = "1" ]; then
+        ntfy_push "⚠️ All-In Expert QA regression" \
+            "overall=${NEW_OVERALL:-?} (was ${OLD_OVERALL:-n/a}); below floor: [${NEW_BELOW}]. KB still refreshed." \
+            high "chart_with_downwards_trend"
+        log "QA regression WORSE than last run — phone alert sent."
+    else
+        log "QA regression unchanged vs last run — ALERTS entry only, no phone push."
+    fi
+    qa_signature > "$QA_STATE_FILE"
+fi
 
 RUN_OK=1
 DID_FULL_RUN=1

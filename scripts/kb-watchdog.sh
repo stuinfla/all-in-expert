@@ -24,7 +24,17 @@ CEILING_DAYS=4          # target cadence is 3 days; alarm once we blow past 4
 NODE="/opt/homebrew/bin/node"
 [ -x "$NODE" ] || NODE="/usr/local/bin/node"
 # ntfy phone push — dedicated topic (subscribe to it once in the ntfy app).
-AIE_NTFY_TOPIC="${AIE_NTFY_TOPIC:-all-in-expert-kb-4f7b38f92c}"
+# The topic name IS the credential on ntfy.sh, so it lives only in .env
+# (git-ignored) — this repo is public and the old hardcoded topic was readable
+# by anyone. Parse, never `source`: .env must not be executed. Rotated 2026-07-09.
+# launchd gives this script only PATH+HOME, so nothing is inherited from a shell.
+if [ -z "${AIE_NTFY_TOPIC:-}" ] && [ -f "$ROOT/.env" ]; then
+    _line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?AIE_NTFY_TOPIC=' "$ROOT/.env" 2>/dev/null | tail -1)
+    _val=${_line#*=}; _val=${_val%$'\r'}; _val=${_val#[\"\']}; _val=${_val%[\"\']}
+    AIE_NTFY_TOPIC="$_val"
+fi
+# Empty topic ⇒ no phone push. ALERTS log + desktop notification still fire.
+AIE_NTFY_TOPIC="${AIE_NTFY_TOPIC:-}"
 
 mkdir -p "$LOG_DIR"
 cd "$ROOT" || exit 0
