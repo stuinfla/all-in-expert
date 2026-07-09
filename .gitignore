@@ -57,3 +57,6 @@ ruvector.db
 .env.production
 .env.local
 .dev.vars
+
+# Agentic-QE local tool state (SQLite + WAL/SHM + logs) — never commit
+.agentic-qe/
