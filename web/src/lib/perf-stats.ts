@@ -27,11 +27,12 @@ export interface PerfStatsEntry {
   strict?: boolean;
 }
 
-// Resolve the writable target once per cold-start. Tries (in order):
-//   1. <cwd>/data/qa/perf-stats.jsonl       (web/ co-located build)
-//   2. <cwd>/../data/qa/perf-stats.jsonl    (monorepo: cwd=web/, data lives one up)
-//   3. /tmp/perf-stats.jsonl                (Vercel/Lambda read-only FS)
+// Resolve the writable target once per cold-start. On Vercel the only writable
+// path is /tmp; every other candidate (including bundled data/qa/ which exists
+// in the read-only deployment fs) would silently fail on appendFile. Locally
+// we prefer the repo's data/qa/ so dev telemetry persists across restarts.
 function resolveTarget(): string {
+  if (process.env.VERCEL) return '/tmp/perf-stats.jsonl';
   const candidates = [
     join(process.cwd(), 'data', 'qa', 'perf-stats.jsonl'),
     join(process.cwd(), '..', 'data', 'qa', 'perf-stats.jsonl'),
@@ -44,7 +45,6 @@ function resolveTarget(): string {
       /* ignore — try next */
     }
   }
-  // Last resort: /tmp (writable on Vercel/Lambda)
   return '/tmp/perf-stats.jsonl';
 }
 

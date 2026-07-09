@@ -17,7 +17,12 @@ import crypto from 'crypto';
 const PI_BRAIN_BASE = 'https://pi.ruv.io/v1';
 const PI_BRAIN_KEY = process.env.PI_BRAIN_API_KEY || 'brain-ui';
 const CACHE_TAG = 'all-in-expert';
-const CACHE_VERSION = 'aie-v1';
+// Bumped aie-v1 → aie-v2 to invalidate any cached responses produced under the
+// previous embedding-space mismatch (query embedded with MiniLM vs. doc vectors
+// embedded with OpenAI text-embedding-3-small). Those entries returned plausible
+// looking answers grounded in essentially-random retrievals; the version bump
+// forces a re-synthesis on the corrected retrieval path.
+const CACHE_VERSION = 'aie-v2';
 const CACHE_TTL_MS = 72 * 60 * 60 * 1000; // 72h
 // Pi.ruv.io is inconsistent — search can take 1.3s or time out at 3s+. Since
 // the API route now does the pi-brain lookup IN PARALLEL with retrieval
