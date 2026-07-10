@@ -75,7 +75,14 @@ export async function synthesizeText(args: SynthArgs): Promise<string> {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!r.ok) throw new Error(`OpenAI ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      // Never embed the raw body: OpenAI's 401 echoes the key as
+      // `sk-proj-****…3456`, and this message reaches logs and (formerly) HTTP
+      // clients. Keep the status and OpenAI's own error code — the actionable part.
+      if (!r.ok) {
+        const body = await r.text();
+        const code = /"code"\s*:\s*"([a-z_]+)"/.exec(body)?.[1] ?? /"type"\s*:\s*"([a-z_]+)"/.exec(body)?.[1] ?? '';
+        throw new Error(`OpenAI ${r.status}${code ? `: ${code}` : ''}`);
+      }
       const d = await r.json();
       return d.choices?.[0]?.message?.content || '';
     } finally {
@@ -102,7 +109,11 @@ export async function synthesizeText(args: SynthArgs): Promise<string> {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      if (!r.ok) {
+        const body = await r.text();
+        const status = /"status"\s*:\s*"([A-Z_]+)"/.exec(body)?.[1]?.toLowerCase() ?? '';
+        throw new Error(`Gemini ${r.status}${status ? `: ${status}` : ''}`);
+      }
       const d = await r.json();
       const parts = d.candidates?.[0]?.content?.parts || [];
       return parts.map((p: { text?: string }) => p.text || '').join('');

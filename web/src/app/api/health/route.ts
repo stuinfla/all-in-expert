@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
-import { probeSemanticLive } from '@/lib/semantic-health';
+import { probeSemanticLive, probeSynthesisLive } from '@/lib/provider-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -174,14 +174,20 @@ export async function GET() {
 
   const uptimeSec = Math.floor((Date.now() - PROCESS_START_MS) / 1000);
 
-  // Live dense-path probe (60s cached). Asset existence alone is not health:
-  // on 2026-07-09 embeddings.bin was present and valid while every query embed
-  // returned 429, so /api/ask silently served TF-IDF-only answers. A `degraded`
-  // status here is what the watchdog should key on.
-  const semantic = await probeSemanticLive();
+  // Live probes of BOTH providers on the critical path (60s cached each).
+  //
+  // Asset existence alone is not health: on 2026-07-09 embeddings.bin was present
+  // and valid while every query embed returned 429, so /api/ask silently served
+  // TF-IDF-only answers. And retrieval health alone is not SITE health: later the
+  // same day Anthropic ran out of credit, /api/ask returned 500 to every visitor,
+  // and this endpoint still said `ok` because it only probed OpenAI.
+  //
+  // `semantic` down  → answers still flow, degraded (TF-IDF only).
+  // `synthesis` down → the site cannot answer at all.
+  const [semantic, synthesis] = await Promise.all([probeSemanticLive(), probeSynthesisLive()]);
 
   const status: 'ok' | 'degraded' =
-    chunkCount > 0 && embeddingsBinExists && semantic.ok ? 'ok' : 'degraded';
+    chunkCount > 0 && embeddingsBinExists && semantic.ok && synthesis.ok ? 'ok' : 'degraded';
 
   return NextResponse.json(
     {
@@ -195,6 +201,7 @@ export async function GET() {
       rvfExists,
       rvfBytes,
       semantic,
+      synthesis,
       lastQaScore,
       qaBaselineDate,
       qaScoreSource,

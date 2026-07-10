@@ -10,7 +10,7 @@ import { validateCitations, verifyClaimsAgainstCitations, rewriteToHedge, append
 import { synthesizeText } from '@/lib/synthesize';
 import { checkRateLimit, recordCall, isQaBypass } from '@/lib/rate-limit';
 import { appendPerfStats } from '@/lib/perf-stats';
-import { recordSemanticSuccess, recordSemanticFailure } from '@/lib/semantic-health';
+import { recordSemanticSuccess, recordSemanticFailure, recordSynthesisFailure, sanitizeReason } from '@/lib/provider-health';
 
 // Bumped from 60s → 120s. The pipeline (hybrid retrieval → MMR → cross-encoder
 // rerank → synthesis → citation validation → claim verification → optional
@@ -2033,8 +2033,24 @@ ANALYSIS OUTPUT: The "Where they split" section must compare positions explicitl
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Internal server error';
-    console.error('API error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const raw = err instanceof Error ? err.message : 'Internal server error';
+    const reason = sanitizeReason(raw);
+
+    // Anything reaching here means we produced no answer. When the cause is the
+    // synthesis provider (Anthropic), record it so /api/health goes degraded and
+    // the phone rings — on 2026-07-09 the site 500'd for every visitor while
+    // /api/health still reported `ok`, because only the embedding leg was probed.
+    if (/credit balance|anthropic|rate_limit|overloaded|authentication/i.test(raw)) {
+      recordSynthesisFailure(raw);
+    }
+    console.error('API error:', reason); // sanitized: providers echo key fragments
+
+    // NEVER return the upstream body to the caller. This previously shipped
+    // Anthropic's "Your credit balance is too low" — internal billing state — to
+    // unauthenticated clients, and would have shipped OpenAI's key-tail echo too.
+    return NextResponse.json(
+      { error: 'The answer service is temporarily unavailable. Please try again shortly.' },
+      { status: 503 }
+    );
   }
 }
