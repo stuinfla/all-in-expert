@@ -45,24 +45,39 @@ export interface ProviderStatus {
  * an ntfy topic, AND (via route.ts's catch-all) to unauthenticated HTTP clients.
  * Verified 2026-07-09 with a sentinel key.
  */
+/**
+ * Anthropic states several distinct billing conditions in PROSE rather than a
+ * machine code, and the prose carries operational detail (balances, reset dates)
+ * that must never reach a public endpoint. Map each to a stable code.
+ */
+const PROSE_CODES: Array<[RegExp, string]> = [
+  [/credit balance is too low/i, 'credit_balance_too_low'],
+  [/reached your specified API usage limits?/i, 'usage_limit_reached'],
+  [/rate.?limit/i, 'rate_limited'],
+  [/overloaded/i, 'overloaded'],
+  // "Incorrect API key provided: sk-proj-****3456" — OpenAI's 401 prose, which
+  // echoes the key's last four characters. Match it before the fallback so it is
+  // named rather than merely redacted.
+  [/invalid x-api-key|authentication_error|invalid_api_key|incorrect api key provided/i, 'invalid_api_key'],
+];
+
 export function sanitizeReason(raw: string): string {
+  for (const [re, code] of PROSE_CODES) if (re.test(raw)) return code;
+
   const http = /(?:OpenAI|Anthropic|Gemini)[^\d]{0,20}(\d{3})(?::\s*([a-z_]+))?/i.exec(raw);
   const jsonCode = /"code"\s*:\s*"([a-z_]+)"/.exec(raw) ?? /"type"\s*:\s*"([a-z_]+)"/.exec(raw);
-  // Anthropic reports a dead balance in prose, not a machine code.
-  const lowBalance = /credit balance is too low/i.test(raw);
-
-  let out: string;
-  if (lowBalance) out = 'credit_balance_too_low';
-  else if (http || jsonCode) {
+  if (http || jsonCode) {
     const code = http?.[2] ?? jsonCode?.[1] ?? null;
-    out = [http ? `http_${http[1]}` : null, code].filter(Boolean).join(':');
-  } else out = raw;
+    return [http ? `http_${http[1]}` : null, code].filter(Boolean).join(':').slice(0, 120);
+  }
 
-  return out
-    .replace(/sk-[A-Za-z0-9_*-]+/g, '[redacted]') // never emit key-shaped tokens
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
+  // Already a bare code (no whitespace)? Pass it through, redacted. Otherwise it
+  // is unrecognised provider prose — /api/health is PUBLIC, so never echo it.
+  // On 2026-07-09 this endpoint briefly published Anthropic's spend-limit notice,
+  // reset date and all, to anonymous callers.
+  const bare = raw.trim();
+  if (/^[A-Za-z0-9_:.-]{1,60}$/.test(bare)) return bare.replace(/sk-[A-Za-z0-9_*-]+/g, '[redacted]');
+  return 'provider_error';
 }
 
 // Per-instance state. Serverless gives each cold instance its own module scope,
