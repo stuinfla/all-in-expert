@@ -60,3 +60,7 @@ ruvector.db
 
 # Agentic-QE local tool state (SQLite + WAL/SHM + logs) — never commit
 .agentic-qe/
+
+# Speaker-ID working data: audio is deleted after embedding; .npz caches are large
+data/audio/
+data/speaker/
