@@ -64,3 +64,7 @@ ruvector.db
 # Speaker-ID working data: audio is deleted after embedding; .npz caches are large
 data/audio/
 data/speaker/
+
+# Python bytecode from the speaker-ID scripts
+__pycache__/
+*.pyc
