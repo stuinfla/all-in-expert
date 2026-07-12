@@ -396,10 +396,32 @@ qa_signature() {
       process.stdout.write(`${j.overall}|${below.join(",")}`);
     ' 2>/dev/null
 }
-if "$NODE" scripts/qa-ci.mjs >> "$LOG_FILE" 2>&1; then
+
+# Cadence gate (cost, NOT quality): the 20-Q harness generates 20 Opus prod
+# answers + 20 claude-sonnet-4-6 grades per run. The KB changes incrementally, so
+# quality does not swing between 3-day rebuilds. Run the FULL harness — same 20
+# questions, same strong grader; the quality of the quality-check is NOT reduced —
+# at most WEEKLY instead of every rebuild. ~57% fewer QA runs, zero quality loss.
+# Override with QA_FORCE=1 to measure a change (e.g. a prompt edit) immediately.
+QA_LAST_FILE="$LOG_DIR/all-in-expert-qa-last.ts"
+QA_MIN_DAYS=7
+QA_DUE=1
+if [ "${QA_FORCE:-0}" != "1" ] && [ -f "$QA_LAST_FILE" ]; then
+    QA_DUE=$("$NODE" -e '
+      const fs=require("fs");
+      try { const days=(Date.now()-Date.parse(fs.readFileSync(process.argv[1],"utf8").trim()))/864e5;
+            process.stdout.write(days >= Number(process.argv[2]) ? "1" : "0"); }
+      catch { process.stdout.write("1"); }
+    ' "$QA_LAST_FILE" "$QA_MIN_DAYS" 2>/dev/null || echo 1)
+fi
+if [ "$QA_DUE" != "1" ]; then
+    log "QA regression check: skipped (last full run < ${QA_MIN_DAYS}d ago; QA_FORCE=1 to run now)"
+elif "$NODE" scripts/qa-ci.mjs >> "$LOG_FILE" 2>&1; then
+    date '+%Y-%m-%dT%H:%M:%S%z' > "$QA_LAST_FILE"
     log "QA regression check: PASS"
     qa_signature > "$QA_STATE_FILE"
 else
+    date '+%Y-%m-%dT%H:%M:%S%z' > "$QA_LAST_FILE"   # a regression still counts as "QA ran"
     NEW_SIG=$(qa_signature); OLD_SIG=$(cat "$QA_STATE_FILE" 2>/dev/null || true)
     NEW_OVERALL=${NEW_SIG%%|*}; NEW_BELOW=${NEW_SIG#*|}
     OLD_OVERALL=${OLD_SIG%%|*}; OLD_BELOW=${OLD_SIG#*|}
