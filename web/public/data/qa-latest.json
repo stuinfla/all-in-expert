@@ -1,130 +1,130 @@
 {
-  "timestamp": "2026-07-21T10:32:00.453Z",
-  "overall": 0,
+  "timestamp": "2026-08-31T09:09:57.979Z",
+  "overall": 63.5,
   "questionCount": 20,
   "perQuestion": [
     {
       "id": "q01",
       "category": "Markets",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 59,
+      "keyIssue": "Chamath's lines are largely fabricated — the Elon-Dario deal claim and rate-limiting narrative have no citation support, and [6]/[12] are irrelevant fragments that cannot ground these specific assertions."
     },
     {
       "id": "q02",
       "category": "Macro",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 67,
+      "keyIssue": "Nearly all substantive quotes are drawn from spoken_by=unknown segments but are confidently placed in specific bestie mouths, making the attribution throughout the dialogue unreliable rather than appropriately hedged."
     },
     {
       "id": "q03",
       "category": "Politics",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 71,
+      "keyIssue": "Chamath's substantive dialogue has zero supporting citations from Chamath-spoken segments — his lines are constructed from Elon's retrieved quote and inference, which is a meaningful attribution problem that should be flagged or removed."
     },
     {
       "id": "q04",
       "category": "Crypto",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 70,
+      "keyIssue": "Multiple citations are misapplied (especially [7] which is about AI models, not crypto) and Friedberg's entire speaking turn is fabricated with no citation support, undermining citation accuracy significantly."
     },
     {
       "id": "q05",
       "category": "Forecast",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 68,
+      "keyIssue": "Citation [1] is spoken_by=elon, not a bestie — attributing its gold/Bitcoin underperformance content directly to Chamath and Friedberg as their own views is a misattribution that undermines citation accuracy."
     },
     {
       "id": "q06",
       "category": "Science",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 63,
+      "keyIssue": "Multiple citations are spoken_by=unknown yet the response confidently assigns their content to specific hosts, and key numeric claims (5x energy demand, 1.2% elasticity figure) cannot be verified against any provided citation."
     },
     {
       "id": "q07",
       "category": "Tariffs",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 61,
+      "keyIssue": "Multiple Elon (guest) statements are laundered into Friedberg's voice as his own views, and Sacks is given substantial fabricated dialogue with no citation support whatsoever — the speaker attribution is fundamentally broken."
     },
     {
       "id": "q08",
       "category": "Tech",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 74,
+      "keyIssue": "The system puts specific words in Elon's mouth (multi-trillion valuations, compute as choke point) that go well beyond what citation [4] actually supports, and misattributes the secondary market valuation observation from Chamath to Jason as host framing."
     },
     {
       "id": "q09",
       "category": "Chamath",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 38,
+      "keyIssue": "The system fabricated an entire macro thesis for Chamath using invented claims about monetary velocity, rate cuts, and wealth effects — none of which appear in any of the 12 retrieved citations, making the response fundamentally misleading despite the upfront disclaimer."
     },
     {
       "id": "q10",
       "category": "AI",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 79,
+      "keyIssue": "Multiple substantive claims are attributed to specific besties (Sacks, Chamath, Friedberg) but the underlying citations are spoken_by=unknown, making the voice-to-citation mapping unreliable and potentially misleading."
     },
     {
       "id": "q11",
       "category": "Politics",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 62,
+      "keyIssue": "The response systematically reassigns Elon Musk's actual spoken words (citations [2],[4],[7],[11] all spoken_by=elon) to the besties — Chamath, Friedberg, Sacks — as if they said them, which is a fundamental citation misattribution error throughout."
     },
     {
       "id": "q12",
       "category": "Markets",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 69,
+      "keyIssue": "Multiple segments are spoken_by=unknown yet confidently assigned to Chamath, and Sacks's substantive dialogue has no citation backing — both are attribution errors that undermine grounding integrity."
     },
     {
       "id": "q13",
       "category": "Guest",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 57,
+      "keyIssue": "The response misattributes an Elon quote (citation [10]) to Gerstner and fabricates uncited dialogue for Chamath and Sacks, making the majority of the conversation ungrounded despite a real citation anchor in [12]."
     },
     {
       "id": "q14",
       "category": "Geopolitics",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 69,
+      "keyIssue": "The core problem is that nearly all citations are spoken_by=unknown, yet the response confidently assigns dialogue lines to specific besties — this systematic misattribution undermines citation accuracy throughout."
     },
     {
       "id": "q15",
       "category": "Startups",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 59,
+      "keyIssue": "Citation [8] is spoken_by=unknown and does not support the bust-cycle claim attributed to it — this is a fabricated attribution dressed as a verified citation, and the invented Chamath dialogue has no grounding in any retrieved segment."
     },
     {
       "id": "q16",
       "category": "Energy",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 61,
+      "keyIssue": "The system systematically assigns spoken_by=unknown segments to specific besties (Chamath, Sacks, Friedberg) as if they were confirmed speakers, which is a pervasive misattribution problem that undermines citation accuracy across the entire response."
     },
     {
       "id": "q17",
       "category": "Forecast",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 69,
+      "keyIssue": "Multiple citations (especially [8] spoken_by=kalanick and [7]/[3] spoken_by=unknown) are misattributed to specific besties as their own words, which is the most serious grading failure here."
     },
     {
       "id": "q18",
       "category": "Immigration",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 68,
+      "keyIssue": "Multiple substantive claims are confidently attributed to Sacks and Chamath but sourced from spoken_by=unknown segments, making the speaker attribution unreliable throughout the core of the response."
     },
     {
       "id": "q19",
       "category": "Health",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 52,
+      "keyIssue": "The response directly contradicts citation [1] — Friedberg explicitly named Palantir (not GLP-1s) as his biggest business surprise — then fabricates an entire dialogue around the false GLP-1 claim, making the core premise of the answer factually inverted."
     },
     {
       "id": "q20",
       "category": "Media",
-      "overall": 0,
-      "keyIssue": null
+      "overall": 54,
+      "keyIssue": "The response fabricates several specific Sacks framings on media bias with no citation support, and misattributes the 'industrial complex' content from Sacks (spoken_by=sacks) to Chamath — a fundamental attribution error that undermines credibility."
     }
   ],
   "baselineOverall": 68,
-  "delta": -68,
-  "sourceRun": "/Users/stuartkerr/Code/All In Expert/data/qa/qa-run-2026-07-21.json"
+  "delta": -4.5,
+  "sourceRun": "/Users/stuartkerr/Code/All In Expert/data/qa/qa-run-2026-08-31.json"
 }
