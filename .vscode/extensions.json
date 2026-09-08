@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "PawelHuryn.grok-vscode-phuryn",
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "esbenp.prettier-vscode"
+  ]
+}
