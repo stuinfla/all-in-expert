@@ -1,0 +1,28 @@
+{
+  "files.eol": "\n",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "typescript.tsdk": "web/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/data/captions": true,
+    "**/data/transcripts": true,
+    "**/data/kb": true,
+    "**/web/public/data/*.bin": true,
+    "**/web/public/data/content-index.json": true,
+    "**/web/public/data/idf.json": true,
+    "**/web/public/data/embeddings-order.json": true
+  },
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/data/captions/**": true,
+    "**/data/transcripts/**": true,
+    "**/data/kb/**": true,
+    "**/web/public/data/*.bin": true
+  },
+  "files.associations": {
+    "*.css": "tailwindcss"
+  }
+}
