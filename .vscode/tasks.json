@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Web: Next.js dev",
+      "type": "npm",
+      "script": "dev",
+      "path": "web",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Web: install",
+      "type": "shell",
+      "command": "npm install && cd web && npm install",
+      "problemMatcher": []
+    }
+  ]
+}
